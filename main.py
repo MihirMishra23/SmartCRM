@@ -73,20 +73,10 @@ def parse_parts(service, parts, folder_name, message):
                 # recursively call this function when we see that a part
                 # has parts inside
                 parse_parts(service, part.get("parts"), folder_name, message)
-            if mimeType == "text/plain":
+            if mimeType == "text/plain" and data:
                 # if the email part is text plain
-                if data:
                     text = urlsafe_b64decode(data).decode()
                     print(text)
-            elif mimeType == "text/html":
-                # if the email part is an HTML content
-                # save the HTML file and optionally open it in the browser
-                if not filename:
-                    filename = "index.html"
-                filepath = os.path.join(folder_name, filename)
-                print("Saving HTML to", filepath)
-                with open(filepath, "wb") as f:
-                    f.write(urlsafe_b64decode(data))
             else:
                 # attachment other than a plain text or HTML
                 for part_header in part_headers:
@@ -149,16 +139,10 @@ def read_message(service, message):
                         folder_name = f"{folder_name[:-3]}_{folder_counter}"
                     else:
                         folder_name = f"{folder_name}_{folder_counter}"
-                os.mkdir(folder_name)
                 print("Subject:", value)
             if name.lower() == "date":
                 # we print the date when the message was sent
                 print("Date:", value)
-    if not has_subject:
-        # if the email does not have a subject, then make a folder with "email" name
-        # since folders are created based on subjects
-        if not os.path.isdir(folder_name):
-            os.mkdir(folder_name)
     parse_parts(service, parts, folder_name, message)
     print("="*50)
 
