@@ -4,3 +4,4 @@
 # Don't ignore
 !.gitignore
 !main.py
+!utils.py
