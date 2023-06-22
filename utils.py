@@ -55,10 +55,6 @@ def get_size_format(b, factor=1024, suffix="B"):
             return f"{b:.2f}{unit}{suffix}"
         b /= factor
     return f"{b:.2f}Y{suffix}"
-
-def clean(text):
-    # clean text for creating a folder
-    return "".join(c if c.isalnum() else "_" for c in text)
   
 def parse_parts(service, parts, folder_name, message):
     """
@@ -129,33 +125,18 @@ def read_message(service, message) -> Email:
             value = header.get("value")
             if name.lower() == 'from':
                 # we print the From address
-                print("From:", value)
                 mail.From = value
             if name.lower() == "to":
                 # we print the To address
-                print("To:", value)
                 mail.To = value
             if name.lower() == "subject":
                 # make a directory with the name of the subject
-                folder_name = clean(value)
-                # we will also handle emails with the same subject name
-                folder_counter = 0
-                while os.path.isdir(folder_name):
-                    folder_counter += 1
-                    # we have the same folder name, add a number next to it
-                    if folder_name[-1].isdigit() and folder_name[-2] == "_":
-                        folder_name = f"{folder_name[:-2]}_{folder_counter}"
-                    elif folder_name[-2:].isdigit() and folder_name[-3] == "_":
-                        folder_name = f"{folder_name[:-3]}_{folder_counter}"
-                    else:
-                        folder_name = f"{folder_name}_{folder_counter}"
-                print("Subject:", value)
+                # folder_name = clean(value)
                 mail.Subject = value
             if name.lower() == "date":
                 # we print the date when the message was sent
-                print("Date:", value)
                 mail.Date = value
-    folder_name = "attachments/" + folder_name
+    folder_name = "attachments/" + mail.Subject
     if not has_subject:
         # if the email does not have a subject, then make a folder with "email" name
         # since folders are created based on subjects
