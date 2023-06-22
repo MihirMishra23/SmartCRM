@@ -1,19 +1,15 @@
 from __future__ import print_function
 
-import os.path
-import pickle
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 import os
 import pickle
-# Gmail API utils
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from datetime import datetime
+
+from dataclasses import dataclass
+from google.auth.transport.requests import Request #type: ignore
+from google.oauth2.credentials import Credentials #type: ignore
+from google_auth_oauthlib.flow import InstalledAppFlow #type: ignore
+from googleapiclient.discovery import build #type: ignore
+from googleapiclient.errors import HttpError #type: ignore
 # for encoding/decoding messages in base64
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 # for dealing with attachement MIME types
@@ -23,6 +19,15 @@ from email.mime.image import MIMEImage
 from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
+
+
+@dataclass(init=False)
+class Email:
+  To: str
+  From: str
+  Subject: str
+  Contents: str
+  Date: datetime
 
 
 def search_messages(service, query):
@@ -59,6 +64,7 @@ def parse_parts(service, parts, folder_name, message):
     """
     Utility function that parses the content of an email partition
     """
+    
     if parts:
         for part in parts:
             filename = part.get("filename")
@@ -70,11 +76,12 @@ def parse_parts(service, parts, folder_name, message):
             if part.get("parts"):
                 # recursively call this function when we see that a part
                 # has parts inside
-                parse_parts(service, part.get("parts"), folder_name, message)
+                yield from parse_parts(service, part.get("parts"), folder_name, message)
             if mimeType == "text/plain" and data:
                 # if the email part is text plain
                     text = urlsafe_b64decode(data).decode()
-                    print(text)
+                    # print(text)
+                    yield text
             else:
                 # attachment other than a plain text or HTML
                 for part_header in part_headers:
@@ -94,16 +101,21 @@ def parse_parts(service, parts, folder_name, message):
                                 with open(filepath, "wb") as f:
                                     f.write(urlsafe_b64decode(data))
                                     
-def read_message(service, message):
+def read_message(service, message) -> Email:
     """
     This function takes Gmail API `service` and the given `message_id` and does the following:
-        - Downloads the content of the email
-        - Prints email basic information (To, From, Subject & Date) and plain/text parts
-        - Creates a folder for each email based on the subject
-        - Downloads text/html content (if available) and saves it under the folder created as index.html
+        - Parses the contents of the message to Email and returns
         - Downloads any file that is attached to the email and saves it in the folder created
+    
+    :param service: the api passed in
+    :param message: the message id
+    
+    returns: Email containing all information about the message
     """
     msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
+    
+    mail = Email()
+    
     # parts can be the message body, or attachments
     payload = msg['payload']
     headers = payload.get("headers")
@@ -118,9 +130,11 @@ def read_message(service, message):
             if name.lower() == 'from':
                 # we print the From address
                 print("From:", value)
+                mail.From = value
             if name.lower() == "to":
                 # we print the To address
                 print("To:", value)
+                mail.To = value
             if name.lower() == "subject":
                 # make a directory with the name of the subject
                 folder_name = clean(value)
@@ -136,14 +150,17 @@ def read_message(service, message):
                     else:
                         folder_name = f"{folder_name}_{folder_counter}"
                 print("Subject:", value)
+                mail.Subject = value
             if name.lower() == "date":
                 # we print the date when the message was sent
                 print("Date:", value)
+                mail.Date = value
     folder_name = "attachments/" + folder_name
     if not has_subject:
         # if the email does not have a subject, then make a folder with "email" name
         # since folders are created based on subjects
         if not os.path.isdir(folder_name):
             os.mkdir(folder_name)
-    parse_parts(service, parts, folder_name, message)
-    print("="*50)
+    contents = parse_parts(service, parts, folder_name, message)
+    mail.Contents = "\n\n".join([c for c in contents])
+    return mail
