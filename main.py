@@ -3,14 +3,15 @@ from __future__ import print_function
 import os
 import os.path
 import pickle
+import pandas as pd
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from google.auth.transport.requests import Request #type: ignore
+from google.oauth2.credentials import Credentials #type: ignore
+from google_auth_oauthlib.flow import InstalledAppFlow #type: ignore
+from googleapiclient.discovery import build #type: ignore
+from googleapiclient.errors import HttpError #type: ignore
 # for encoding/decoding messages in base64
-from base64 import urlsafe_b64decode, urlsafe_b64encode
+import base64
 # for dealing with attachement MIME types
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -19,7 +20,8 @@ from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
 
-from utils import *
+from utils_email import *
+from utils_contact import *
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -46,16 +48,33 @@ def main():
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
+    tracker = pd.read_csv("tracker.csv", )
+    tracker = tracker.iloc[0:0]
+
+
     try:
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
-            
-        results = search_messages(service, "to:akilesh@deepscribe.ai")
+                    
+        results = search_messages(service, "label:Networking")
         print(f"Found {len(results)} results.")
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
         for msg in results:
-            read_message(service, msg)
-          
+            message = read_message(service, msg)
+            if message.To not in tracker['Email'].values:
+                tracker.loc[len(tracker.index)] = [message.To, [message.__repr__()]]
+            else:
+                tracker[tracker['Email'] == message.To].iloc[0]['Communication'].append(message.__repr__())
+            if message.From not in tracker['Email'].values:
+                tracker.loc[len(tracker.index)] = [message.From, [message.__repr__()]]
+            else:
+                tracker[tracker['Email'] == message.From].iloc[0]['Communication'].append(message.__repr__())
+            # break
+        print(tracker)
+        print(len(tracker.at[0, 'Communication']))
+        tracker.to_csv("tracker.csv", index=False)
+        
+        
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
         print(f'An error occurred: {error}')
