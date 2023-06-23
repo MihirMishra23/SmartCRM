@@ -4,4 +4,6 @@
 # Don't ignore
 !.gitignore
 !main.py
-!utils.py
+!utils_contact.py
+!utils_email.py
+
