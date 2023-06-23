@@ -21,13 +21,16 @@ from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
 
 
-@dataclass(init=False)
+@dataclass(init=False, repr=False)
 class Email:
   To: str
   From: str
   Subject: str
   Contents: str
   Date: datetime
+  
+  def __str__(self) -> str:
+      return f"Date: {self.Date}\nTo: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
 
 
 def search_messages(service, query):
