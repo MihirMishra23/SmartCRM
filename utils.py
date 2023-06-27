@@ -73,7 +73,7 @@ def parse_parts(service, parts, folder_name, message):
                                 with open(filepath, "wb") as f:
                                     f.write(urlsafe_b64decode(data))
                                     
-def read_message(service, message) -> Email:
+def read_message(service, message, verbose=False) -> Email:
     """
     This function takes Gmail API `service` and the given `message_id` and does the following:
         - Parses the contents of the message to Email and returns
@@ -120,5 +120,8 @@ def read_message(service, message) -> Email:
             os.mkdir(folder_name)
     contents = parse_parts(service, parts, folder_name, message)
     mail["Contents"] = "\n\n".join([c for c in contents])
-    # return Contact(email_address=mail['To'], emails=[Email(To=mail['To'], From=mail['From'], Date=mail['Date'], Subject=mail['Subject'], Contents=mail["Contents"])])
+    if verbose:
+      print("="*20)
+      print(f"From: {mail['From']}\nTo: {mail['To']}\nSubject: {mail['Subject']}\n\n{mail['Contents']}")
+      print('='*20)
     return Email(To=mail['To'], From=Contact(email_address=mail['From']), Date=mail['Date'], Subject=mail['Subject'], Contents=mail["Contents"])

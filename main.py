@@ -59,7 +59,7 @@ def main():
             token.write(creds.to_json())
     
     
-    engine = create_engine("sqlite:///sample.db", echo=True)
+    engine = create_engine("sqlite:///networking_data.db", echo=True)
     engine.connect()
     
     Base.metadata.create_all(bind=engine)
@@ -70,19 +70,12 @@ def main():
     try:
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
-                    
-        results = search_messages(service, "label:Networking")
-        
-        print(f"Found {len(results)} results.")
-        # for each email matched, read it (output plain/text to console & save HTML and attachments)
+        results = service.users().threads().list(userId='me', q='mmishrapike').execute().get('threads', [])
         messages = []
-        i = 0
-        for msg in results:
-            message = read_message(service, msg)
-            messages.append(message)
-            if i > 1:
-                pass
-            i += 1
+        for result in results:
+            thread = service.users().threads().get(userId='me', id=result['id']).execute()['messages']
+            for msg in thread:
+                messages.append(read_message(service, msg))
         session.add_all(messages)
 
         session.commit()
