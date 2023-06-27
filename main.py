@@ -3,7 +3,6 @@ from __future__ import print_function
 import os
 import os.path
 import pickle
-import pandas as pd
 
 from google.auth.transport.requests import Request #type: ignore
 from google.oauth2.credentials import Credentials #type: ignore
@@ -20,11 +19,22 @@ from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
 
-from utils_email import *
-from utils_contact import *
+from sqlalchemy import create_engine
+from models import Base, Contact, Email
+from sqlalchemy.orm import Session
+
+from utils import search_messages, read_message
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+
+def clear_table(session: Session):
+    for table in reversed(Base.metadata.sorted_tables):
+        # Delete each row in the table
+        session.execute(table.delete())
+
+    # Commit the transaction to make the changes persistent
+    session.commit()
 
 def main():
     """Shows basic usage of the Gmail API.
@@ -47,32 +57,35 @@ def main():
         # Save the credentials for the next run
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
+    
+    
+    engine = create_engine("sqlite:///sample.db", echo=True)
+    engine.connect()
+    
+    Base.metadata.create_all(bind=engine)
+    session = Session(bind=engine)
 
-    tracker = pd.read_csv("tracker.csv", )
-    tracker = tracker.iloc[0:0]
-
+    clear_table(session)
 
     try:
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
                     
         results = search_messages(service, "label:Networking")
+        
         print(f"Found {len(results)} results.")
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
+        messages = []
+        i = 0
         for msg in results:
             message = read_message(service, msg)
-            if message.To not in tracker['Email'].values:
-                tracker.loc[len(tracker.index)] = [message.To, [message.__repr__()]]
-            else:
-                tracker[tracker['Email'] == message.To].iloc[0]['Communication'].append(message.__repr__())
-            if message.From not in tracker['Email'].values:
-                tracker.loc[len(tracker.index)] = [message.From, [message.__repr__()]]
-            else:
-                tracker[tracker['Email'] == message.From].iloc[0]['Communication'].append(message.__repr__())
-            # break
-        print(tracker)
-        print(len(tracker.at[0, 'Communication']))
-        tracker.to_csv("tracker.csv", index=False)
+            messages.append(message)
+            if i > 1:
+                pass
+            i += 1
+        session.add_all(messages)
+
+        session.commit()
         
         
     except HttpError as error:
