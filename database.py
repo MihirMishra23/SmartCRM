@@ -4,10 +4,7 @@ from sqlalchemy.orm import Session
 
 engine = create_engine("sqlite:///sample.db", echo=True)
 
-with engine.connect() as connection:
-  result = connection.execute(text('select "Hello"'))
-  
-  print(result.all())
+engine.connect()
   
 Base.metadata.create_all(bind=engine)
 

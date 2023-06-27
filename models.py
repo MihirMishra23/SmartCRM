@@ -1,4 +1,3 @@
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column, relationship, Session #type:ignore
 from sqlalchemy import ForeignKey, Text
 from typing import List
