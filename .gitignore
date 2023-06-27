@@ -1,10 +1,13 @@
-# Ignore everything
-*
+token.json
+token.pickle
+test.py
 
-# Don't ignore
-!.gitignore
-!main.py
-!utils_contact.py
-!utils_email.py
-!tracker.csv
+credentials_cornell.json
+credentials.json
 
+attachments/
+sample.db
+
+venv/
+
+__pycache__/
