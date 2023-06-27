@@ -23,7 +23,7 @@ from sqlalchemy import create_engine
 from models import Base, Contact, Email
 from sqlalchemy.orm import Session
 
-from utils import search_messages, read_message
+from utils import search_messages, read_message, search_threads
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -59,7 +59,7 @@ def main():
             token.write(creds.to_json())
     
     
-    engine = create_engine("sqlite:///networking_data.db", echo=True)
+    engine = create_engine("sqlite:///networking_data.db")
     engine.connect()
     
     Base.metadata.create_all(bind=engine)
@@ -70,12 +70,10 @@ def main():
     try:
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
-        results = service.users().threads().list(userId='me', q='mmishrapike').execute().get('threads', [])
         messages = []
-        for result in results:
-            thread = service.users().threads().get(userId='me', id=result['id']).execute()['messages']
-            for msg in thread:
-                messages.append(read_message(service, msg))
+        results = search_threads(service, 'han@mintlify.com')
+        for msg in results:
+            messages.append(read_message(service, msg, verbose=True))
         session.add_all(messages)
 
         session.commit()

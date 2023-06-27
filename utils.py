@@ -6,6 +6,13 @@ from base64 import urlsafe_b64decode
 
 from models import Contact, Email
 
+def search_threads(service, query: str):
+  results = service.users().threads().list(userId='me', q=query).execute().get('threads', [])
+  for result in results:
+      thread = service.users().threads().get(userId='me', id=result['id']).execute()['messages']
+      for msg in thread:
+          yield msg
+
 def search_messages(service, query: str):
     result = service.users().messages().list(userId='me',q=query).execute()
     messages = [ ]
