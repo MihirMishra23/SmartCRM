@@ -1,39 +1,12 @@
 from __future__ import print_function
 
 import os
-import pickle
-from datetime import datetime
-
-from dataclasses import dataclass
-from google.auth.transport.requests import Request #type: ignore
-from google.oauth2.credentials import Credentials #type: ignore
-from google_auth_oauthlib.flow import InstalledAppFlow #type: ignore
-from googleapiclient.discovery import build #type: ignore
-from googleapiclient.errors import HttpError #type: ignore
 # for encoding/decoding messages in base64
-from base64 import urlsafe_b64decode, urlsafe_b64encode
-# for dealing with attachement MIME types
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-from email.mime.audio import MIMEAudio
-from email.mime.base import MIMEBase
-from mimetypes import guess_type as guess_mime_type
+from base64 import urlsafe_b64decode
 
+from models import Contact, Email
 
-@dataclass(init=False, repr=False)
-class Email:
-  To: str
-  From: str
-  Subject: str
-  Contents: str
-  Date: datetime
-  
-  def __str__(self) -> str:
-      return f"Date: {self.Date}\nTo: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
-
-
-def search_messages(service, query):
+def search_messages(service, query: str):
     result = service.users().messages().list(userId='me',q=query).execute()
     messages = [ ]
     if 'messages' in result:
@@ -113,7 +86,7 @@ def read_message(service, message) -> Email:
     """
     msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
     
-    mail = Email()
+    mail = {}
     
     # parts can be the message body, or attachments
     payload = msg['payload']
@@ -128,23 +101,24 @@ def read_message(service, message) -> Email:
             value = header.get("value")
             if name.lower() == 'from':
                 # we print the From address
-                mail.From = value
+                mail["From"] = value
             if name.lower() == "to":
                 # we print the To address
-                mail.To = value
+                mail["To"] = value
             if name.lower() == "subject":
                 # make a directory with the name of the subject
                 # folder_name = clean(value)
-                mail.Subject = value
+                mail["Subject"] = value
             if name.lower() == "date":
                 # we print the date when the message was sent
-                mail.Date = value
-    folder_name = "attachments/" + mail.Subject
+                mail["Date"] = value
+    folder_name = "attachments/" + mail["Subject"]
     if not has_subject:
         # if the email does not have a subject, then make a folder with "email" name
         # since folders are created based on subjects
         if not os.path.isdir(folder_name):
             os.mkdir(folder_name)
     contents = parse_parts(service, parts, folder_name, message)
-    mail.Contents = "\n\n".join([c for c in contents])
-    return mail
+    mail["Contents"] = "\n\n".join([c for c in contents])
+    # return Contact(email_address=mail['To'], emails=[Email(To=mail['To'], From=mail['From'], Date=mail['Date'], Subject=mail['Subject'], Contents=mail["Contents"])])
+    return Email(To=mail['To'], From=Contact(email_address=mail['From']), Date=mail['Date'], Subject=mail['Subject'], Contents=mail["Contents"])
