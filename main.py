@@ -4,11 +4,12 @@ import os
 import os.path
 import pickle
 
-from google.auth.transport.requests import Request #type: ignore
-from google.oauth2.credentials import Credentials #type: ignore
-from google_auth_oauthlib.flow import InstalledAppFlow #type: ignore
-from googleapiclient.discovery import build #type: ignore
-from googleapiclient.errors import HttpError #type: ignore
+import google
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build, Resource
+from googleapiclient.errors import HttpError
 # for encoding/decoding messages in base64
 import base64
 # for dealing with attachement MIME types
@@ -19,7 +20,7 @@ from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Engine
 from models import Base, Contact, Email
 from sqlalchemy.orm import Session
 
@@ -29,17 +30,16 @@ from utils import search_messages, read_message, search_threads
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 def clear_table(session: Session):
+    """
+    Removes all the entries in the database while retaining the columns
+    
+    :param session: The sqlalchemy session within which to clear the table
+    """
     for table in reversed(Base.metadata.sorted_tables):
-        # Delete each row in the table
         session.execute(table.delete())
-
-    # Commit the transaction to make the changes persistent
     session.commit()
 
 def main():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail labels.
-    """
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -59,7 +59,7 @@ def main():
             token.write(creds.to_json())
     
     
-    engine = create_engine("sqlite:///networking_data.db")
+    engine: Engine = create_engine("sqlite:///networking_data.db")
     engine.connect()
     
     Base.metadata.create_all(bind=engine)
@@ -69,11 +69,11 @@ def main():
 
     try:
         # Call the Gmail API
-        service = build('gmail', 'v1', credentials=creds)
+        service: Resource = build('gmail', 'v1', credentials=creds)
         messages = []
         results = search_threads(service, 'han@mintlify.com')
         for msg in results:
-            messages.append(read_message(service, msg, verbose=True))
+            messages.append(read_message(service, msg, echo=True))
         session.add_all(messages)
 
         session.commit()
