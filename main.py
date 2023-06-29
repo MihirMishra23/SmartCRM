@@ -20,8 +20,7 @@ from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
 from mimetypes import guess_type as guess_mime_type
 
-from utils_email import *
-from utils_contact import *
+from utils import *
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -56,11 +55,11 @@ def main():
         # Call the Gmail API
         service = build('gmail', 'v1', credentials=creds)
                     
-        results = search_messages(service, "label:Networking")
-        print(f"Found {len(results)} results.")
+        results = search_threads(service, "han@mintlify.com")
+        # print(f"Found {len(results)} results.")
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
         for msg in results:
-            message = read_message(service, msg)
+            message = read_message(service, msg, echo=True)
             if message.To not in tracker['Email'].values:
                 tracker.loc[len(tracker.index)] = [message.To, [message.__repr__()]]
             else:
@@ -69,9 +68,6 @@ def main():
                 tracker.loc[len(tracker.index)] = [message.From, [message.__repr__()]]
             else:
                 tracker[tracker['Email'] == message.From].iloc[0]['Communication'].append(message.__repr__())
-            # break
-        print(tracker)
-        print(len(tracker.at[0, 'Communication']))
         tracker.to_csv("tracker.csv", index=False)
         
         
