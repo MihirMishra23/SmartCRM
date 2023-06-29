@@ -1,4 +1,5 @@
 from __future__ import print_function
+from typing import Iterable, Any, List
 
 import os
 import pickle
@@ -31,18 +32,62 @@ class Email:
   
   def __str__(self) -> str:
       return f"Date: {self.Date}\nTo: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
+  
+@dataclass(init=False)
+class Contact:
+  name: str
+  email: str
+  phone: str
+  contact: List[Email]
+
+def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
+    """
+    Returns an iterable of the message objects based on the given query.
+    Searches entire thread instead of just the first email.
+    
+    :param service: The Resource item from googleapiclient.discovery.build()
+    :param query: The query term. Ex: label:Networking
+    """
+    results = (
+        service.users()
+        .threads()
+        .list(userId="me", q=query)
+        .execute()
+        .get("threads", [])
+    )
+    for result in results:
+        thread: List[dict[str, Any]] = (
+            service.users()
+            .threads()
+            .get(userId="me", id=result["id"])
+            .execute()["messages"]
+        )
+        for msg in thread:
+            yield msg
 
 
-def search_messages(service, query):
-    result = service.users().messages().list(userId='me',q=query).execute()
-    messages = [ ]
-    if 'messages' in result:
-        messages.extend(result['messages'])
-    while 'nextPageToken' in result:
-        page_token = result['nextPageToken']
-        result = service.users().messages().list(userId='me',q=query, pageToken=page_token).execute()
-        if 'messages' in result:
-            messages.extend(result['messages'])
+def search_messages(service, query: str) -> List[dict[str, str]]:
+    """
+    Returns a list of the message objects based on the given query. Only 
+    retrieves the first message object in each thread.
+    
+    :param service: The Resource item from googleapiclient.discovery.build()
+    :param query: The query term. Ex: from:email@address.com
+    """
+    result = service.users().messages().list(userId="me", q=query).execute()
+    messages = []
+    if "messages" in result:
+        messages.extend(result["messages"])
+    while "nextPageToken" in result:
+        page_token = result["nextPageToken"]
+        result = (
+            service.users()
+            .messages()
+            .list(userId="me", q=query, pageToken=page_token)
+            .execute()
+        )
+        if "messages" in result:
+            messages.extend(result["messages"])
     return messages
   
 # utility functions
@@ -59,7 +104,7 @@ def get_size_format(b, factor=1024, suffix="B"):
         b /= factor
     return f"{b:.2f}Y{suffix}"
   
-def parse_parts(service, parts, folder_name, message):
+def parse_parts(service, parts, folder_name: str, message: dict[str, str]) -> Iterable[str]:
     """
     Utility function that parses the content of an email partition
     """
@@ -100,15 +145,15 @@ def parse_parts(service, parts, folder_name, message):
                                 with open(filepath, "wb") as f:
                                     f.write(urlsafe_b64decode(data))
                                     
-def read_message(service, message) -> Email:
+def read_message(service, message: dict[str, str], echo=False) -> Email:
     """
     This function takes Gmail API `service` and the given `message_id` and does the following:
         - Parses the contents of the message to Email and returns
         - Downloads any file that is attached to the email and saves it in the folder created
-    
+
     :param service: the api passed in
     :param message: the message id
-    
+
     returns: Email containing all information about the message
     """
     msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
@@ -147,4 +192,10 @@ def read_message(service, message) -> Email:
             os.mkdir(folder_name)
     contents = parse_parts(service, parts, folder_name, message)
     mail.Contents = "\n\n".join([c for c in contents])
+    if echo:
+        print("=" * 20)
+        print(
+            f"From: {mail.From}\nTo: {mail.To}\nSubject: {mail.Subject}\n\n{mail.Contents}"
+        )
+        print("="*20)
     return mail
