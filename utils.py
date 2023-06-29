@@ -189,10 +189,12 @@ def read_message(service, message: dict[str, str], echo=False) -> Email:
             f"From: {mail['From']}\nTo: {mail['To']}\nSubject: {mail['Subject']}\n\n{mail['Contents']}"
         )
         print("=" * 20)
+    c1 = Contact(email_address=mail["To"])
+    c2 = Contact(email_address=mail["From"])
     return Email(
-        To=mail["To"],
-        From=Contact(email_address=mail["From"]),
-        Date=mail["Date"],
-        Subject=mail["Subject"],
-        Contents=mail["Contents"],
+        To=c1,
+        From=c2,
+        # Date=mail["Date"],
+        # Subject=mail["Subject"],
+        # Contents=mail["Contents"],
     )
