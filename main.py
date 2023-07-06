@@ -3,8 +3,6 @@ from __future__ import print_function
 import os
 import os.path
 import pickle
-import pandas as pd
-from typing import Optional
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -12,27 +10,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# for encoding/decoding messages in base64
-import base64
-
-# for dealing with attachement MIME types
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-from email.mime.audio import MIMEAudio
-from email.mime.base import MIMEBase
-from mimetypes import guess_type as guess_mime_type
-
 from utils import *
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
 ]
-
-SPREADSHEET_ID = "1WArI3tICbjsE3VegiU3wJqHK4BWkdgjDSunitGVeXUs"
-RANGE_NAME = "Sheet1!A1:H"
 
 
 def connect(
@@ -74,34 +59,24 @@ def main():
     try:
         # Call the Gmail API
         gmail_service = build("gmail", "v1", credentials=cornell_creds)
-        drive_service = build("sheets", "v4", credentials=creds)
+        drive_service = build("drive", "v3", credentials=creds)
+        sheets_service = build("sheets", "v4", credentials=creds)
 
         results = search_threads(gmail_service, "han@mintlify.com")
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
         for msg in results:
             message = read_message(gmail_service, msg, echo=True)
 
+        sheet_id = search_drive(
+            drive_service, name="Mihir Professional Network", file_type="sheet"
+        )
+
         # drive appends row to spreadsheet
         row_data = ["Test 1", "Test 2", "Test 3"]
 
-        # Add the row to the sheet
-        value_input_option = "USER_ENTERED"
-        insert_data_option = "INSERT_ROWS"
-        value_range_body = {
-            "values": [row_data],
-            "majorDimension": "ROWS",
-        }
-        add = (
-            drive_service.spreadsheets()
-            .values()
-            .append(
-                spreadsheetId=SPREADSHEET_ID,
-                range="Sheet1!A4",
-                valueInputOption=value_input_option,
-                insertDataOption=insert_data_option,
-                body=value_range_body,
-            )
-        ).execute()
+        add_row(
+            sheets_service, row_data=row_data, sheet_id=sheet_id, tab_name="Contacts"
+        )
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
