@@ -4,12 +4,13 @@ import os
 import os.path
 import pickle
 import pandas as pd
+from typing import Optional
 
-from google.auth.transport.requests import Request  # type: ignore
-from google.oauth2.credentials import Credentials  # type: ignore
-from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
-from googleapiclient.discovery import build  # type: ignore
-from googleapiclient.errors import HttpError  # type: ignore
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 # for encoding/decoding messages in base64
 import base64
@@ -30,36 +31,49 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-SPREADSHEET_ID = "1eZhFLlhakNtRC8QYyrNW1b__FxlXeRdZ3R-9U5F4ETg"
+SPREADSHEET_ID = "1WArI3tICbjsE3VegiU3wJqHK4BWkdgjDSunitGVeXUs"
 RANGE_NAME = "Sheet1!A1:H"
 
 
-def main():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail labels.
+def connect(
+    token_json_path: str = "token.json", cred_json_path: str = "credentials.json"
+):
+    """
+    Returns credential to connect to API. This cred object can be used to build
+    API resources.
+
+    :param token_json_path: The path to the token json. If already filled,
+        doesn't change
+    :param cred_json_path: The path to the credential file. This is exported from google.
     """
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    if os.path.exists(token_json_path):
+        creds = Credentials.from_authorized_user_file(token_json_path, SCOPES)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                "credentials_cornell.json", SCOPES
-            )
+            flow = InstalledAppFlow.from_client_secrets_file(cred_json_path, SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open("token.json", "w") as token:
+        with open(token_json_path, "w") as token:
             token.write(creds.to_json())
+    return creds
+
+
+def main():
+    creds = connect(token_json_path="token.json", cred_json_path="credentials.json")
+    cornell_creds = connect(
+        token_json_path="token_cornell.json", cred_json_path="credentials_cornell.json"
+    )
 
     try:
         # Call the Gmail API
-        gmail_service = build("gmail", "v1", credentials=creds)
+        gmail_service = build("gmail", "v1", credentials=cornell_creds)
         drive_service = build("sheets", "v4", credentials=creds)
 
         results = search_threads(gmail_service, "han@mintlify.com")
