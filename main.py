@@ -9,6 +9,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import openai
+from dotenv import load_dotenv
 
 from utils import *
 
@@ -18,6 +20,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 def connect(
@@ -57,7 +62,6 @@ def main():
     )
 
     try:
-        # Call the Gmail API
         gmail_service = build("gmail", "v1", credentials=cornell_creds)
         drive_service = build("drive", "v3", credentials=creds)
         sheets_service = build("sheets", "v4", credentials=creds)
@@ -65,18 +69,40 @@ def main():
         results = search_threads(gmail_service, "han@mintlify.com")
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
         for msg in results:
-            message = read_message(gmail_service, msg, echo=True)
+            message = read_message(gmail_service, msg)
+            chat_completion = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """I want you to act as a summarizer. Give 2-3 
+                            concise sentence summaries of the emails I give you or 
+                            give the contact information you can gleam. I am 
+                            Mihir Mishra, so you can refer to me in the first 
+                            person. Your responses should be to the point and 
+                            succinct.""",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{message}",
+                    },
+                ],
+                temperature=0.1,
+            )
 
-        sheet_id = search_drive(
-            drive_service, name="Mihir Professional Network", file_type="sheet"
-        )
+            print(chat_completion.choices[0].message.content)  # type: ignore
+            print()
 
-        # drive appends row to spreadsheet
-        row_data = ["Test 1", "Test 2", "Test 3"]
+        # sheet_id = search_drive(
+        #     drive_service, name="Mihir Professional Network", file_type="sheet"
+        # )
 
-        add_row(
-            sheets_service, row_data=row_data, sheet_id=sheet_id, tab_name="Contacts"
-        )
+        # # drive appends row to spreadsheet
+        # row_data = ["Test 1", "Test 2", "Test 3"]
+
+        # add_row(
+        #     sheets_service, row_data=row_data, sheet_id=sheet_id, tab_name="Contacts"
+        # )
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
