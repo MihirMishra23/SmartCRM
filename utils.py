@@ -1,19 +1,38 @@
 from __future__ import print_function
-from typing import Iterable, Any, List
+from typing import Iterable, Any, List, Optional, Literal
 
 import os
+from datetime import datetime
 
-# for encoding/decoding messages in base64
+from dataclasses import dataclass
 from base64 import urlsafe_b64decode
 
-from models import Contact, Email
+
+@dataclass(init=False, repr=False)
+class Email:
+    To: str
+    From: str
+    Subject: str
+    Contents: str
+    Date: datetime
+
+    def __str__(self) -> str:
+        return f"Date: {self.Date}\nTo: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
+
+
+@dataclass(init=False)
+class Contact:
+    name: str
+    email: str
+    phone: str
+    contact: List[Email]
 
 
 def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
     """
     Returns an iterable of the message objects based on the given query.
     Searches entire thread instead of just the first email.
-    
+
     :param service: The Resource item from googleapiclient.discovery.build()
     :param query: The query term. Ex: label:Networking
     """
@@ -37,9 +56,9 @@ def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
 
 def search_messages(service, query: str) -> List[dict[str, str]]:
     """
-    Returns a list of the message objects based on the given query. Only 
+    Returns a list of the message objects based on the given query. Only
     retrieves the first message object in each thread.
-    
+
     :param service: The Resource item from googleapiclient.discovery.build()
     :param query: The query term. Ex: from:email@address.com
     """
@@ -60,7 +79,7 @@ def search_messages(service, query: str) -> List[dict[str, str]]:
     return messages
 
 
-# utility function
+# utility functions
 def get_size_format(b, factor=1024, suffix="B"):
     """
     Scale bytes to its proper byte format
@@ -75,7 +94,9 @@ def get_size_format(b, factor=1024, suffix="B"):
     return f"{b:.2f}Y{suffix}"
 
 
-def parse_parts(service, parts, folder_name: str, message: dict[str, str]) -> Iterable[str]:
+def parse_parts(
+    service, parts, folder_name: str, message: dict[str, str]
+) -> Iterable[str]:
     """
     Utility function that parses the content of an email partition
     """
@@ -149,7 +170,7 @@ def read_message(service, message: dict[str, str], echo=False) -> Email:
         .execute()
     )
 
-    mail = {}
+    mail = Email()
 
     # parts can be the message body, or attachments
     payload = msg["payload"]
@@ -164,37 +185,88 @@ def read_message(service, message: dict[str, str], echo=False) -> Email:
             value = header.get("value")
             if name.lower() == "from":
                 # we print the From address
-                mail["From"] = value
+                mail.From = value
             if name.lower() == "to":
                 # we print the To address
-                mail["To"] = value
+                mail.To = value
             if name.lower() == "subject":
                 # make a directory with the name of the subject
                 # folder_name = clean(value)
-                mail["Subject"] = value
+                mail.Subject = value
             if name.lower() == "date":
                 # we print the date when the message was sent
-                mail["Date"] = value
-    folder_name = "attachments/" + mail["Subject"]
+                mail.Date = value
+    folder_name = "attachments/" + mail.Subject
     if not has_subject:
         # if the email does not have a subject, then make a folder with "email" name
         # since folders are created based on subjects
         if not os.path.isdir(folder_name):
             os.mkdir(folder_name)
     contents = parse_parts(service, parts, folder_name, message)
-    mail["Contents"] = "\n\n".join([c for c in contents])
+    mail.Contents = "\n\n".join([c for c in contents])
     if echo:
         print("=" * 20)
         print(
-            f"From: {mail['From']}\nTo: {mail['To']}\nSubject: {mail['Subject']}\n\n{mail['Contents']}"
+            f"From: {mail.From}\nTo: {mail.To}\nSubject: {mail.Subject}\n\n{mail.Contents}"
         )
         print("=" * 20)
-    c1 = Contact(email_address=mail["To"])
-    c2 = Contact(email_address=mail["From"])
-    return Email(
-        To=c1,
-        From=c2,
-        # Date=mail["Date"],
-        # Subject=mail["Subject"],
-        # Contents=mail["Contents"],
-    )
+    return mail
+
+
+def search_drive(
+    service,
+    *,
+    name: Optional[str] = None,
+    parent: Optional[str] = None,
+    file_type: Literal["sheet", "folder", None] = None,
+) -> str:
+    """
+    Returns the file id of the first query
+
+    :param name: The name of the requested file.
+    :param parent: The name of the parent folder.
+    :param file_type:
+    """
+    lst = []
+    if name:
+        lst.append(f"name = '{name}'")
+    if parent:
+        lst.append(f"parents in {search_drive(service, name=parent)}")
+    if file_type:
+        if file_type == "folder":
+            lst.append(f"mimeType = 'application/vnd.google-apps.folder'")
+        if file_type == "sheet":
+            lst.append(f"mimeType = 'application/vnd.google-apps.spreadsheet'")
+    query = " and ".join(lst)
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get("files", [])
+    if not items:
+        return ""
+    return items[0]["id"]
+
+
+def add_row(service, *, row_data: list, sheet_id: str, tab_name: str):
+    """
+    Adds a row to the given spreadsheet.
+
+    :param row_data: The row data to append to the sheet
+    :param sheet_id: The id of the spreadsheet to add to.
+    :param tab_name: The name of the specific tab to add to.
+    """
+    value_input_option = "USER_ENTERED"
+    insert_data_option = "INSERT_ROWS"
+    value_range_body = {
+        "values": [row_data],
+        "majorDimension": "ROWS",
+    }
+    (
+        service.spreadsheets()
+        .values()
+        .append(
+            spreadsheetId=sheet_id,
+            range=f"{tab_name}!A1",
+            valueInputOption=value_input_option,
+            insertDataOption=insert_data_option,
+            body=value_range_body,
+        )
+    ).execute()

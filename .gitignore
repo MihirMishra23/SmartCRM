@@ -1,13 +1,12 @@
-token.json
-token.pickle
-test.py
-
+attachments/
+venv/
 credentials_cornell.json
 credentials.json
-
-attachments/
-networking_data.db
-
-venv/
+token.json
+token_cornell.json
+token.pickle
+.env
 
 __pycache__/
+
+test.py

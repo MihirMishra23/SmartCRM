@@ -4,32 +4,37 @@ import os
 import os.path
 import pickle
 
-import google
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build, Resource
+from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-# for encoding/decoding messages in base64
-import base64
-# for dealing with attachement MIME types
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-from email.mime.audio import MIMEAudio
-from email.mime.base import MIMEBase
-from mimetypes import guess_type as guess_mime_type
+import openai
+from dotenv import load_dotenv
 
-from sqlalchemy import create_engine, Engine
-from models import Base, Contact, Email
-from sqlalchemy.orm import Session
-
-from utils import search_messages, read_message, search_threads
+from utils import *
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
-def clear_table(session: Session):
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+def connect(
+    token_json_path: str = "token.json", cred_json_path: str = "credentials.json"
+):
+    """
+    Returns credential to connect to API. This cred object can be used to build
+    API resources.
+
+    :param token_json_path: The path to the token json. If already filled,
+        doesn't change
+    :param cred_json_path: The path to the credential file. This is exported from google.
     """
     Removes all the entries in the database while retaining the columns
     
@@ -44,45 +49,74 @@ def main():
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists(token_json_path):
+        creds = Credentials.from_authorized_user_file(token_json_path, SCOPES)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials_cornell.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(cred_json_path, SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open('token.json', 'w') as token:
+        with open(token_json_path, "w") as token:
             token.write(creds.to_json())
-    
-    
-    engine: Engine = create_engine("sqlite:///networking_data.db")
-    engine.connect()
-    
-    Base.metadata.create_all(bind=engine)
-    session = Session(bind=engine)
+    return creds
 
-    clear_table(session)
+
+def main():
+    creds = connect(token_json_path="token.json", cred_json_path="credentials.json")
+    cornell_creds = connect(
+        token_json_path="token_cornell.json", cred_json_path="credentials_cornell.json"
+    )
 
     try:
-        # Call the Gmail API
-        service: Resource = build('gmail', 'v1', credentials=creds)
-        messages = []
-        results = search_threads(service, 'han@mintlify.com')
-        for msg in results:
-            messages.append(read_message(service, msg, echo=True))
-        session.add_all(messages)
+        gmail_service = build("gmail", "v1", credentials=cornell_creds)
+        drive_service = build("drive", "v3", credentials=creds)
+        sheets_service = build("sheets", "v4", credentials=creds)
 
-        session.commit()
-        
-        
+        results = search_threads(gmail_service, "han@mintlify.com")
+        # for each email matched, read it (output plain/text to console & save HTML and attachments)
+        for msg in results:
+            message = read_message(gmail_service, msg)
+            chat_completion = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """I want you to act as a summarizer. Give 2-3 
+                            concise sentence summaries of the emails I give you or 
+                            give the contact information you can gleam. I am 
+                            Mihir Mishra, so you can refer to me in the first 
+                            person. Your responses should be to the point and 
+                            succinct.""",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{message}",
+                    },
+                ],
+                temperature=0.1,
+            )
+
+            print(chat_completion.choices[0].message.content)  # type: ignore
+            print()
+
+        # sheet_id = search_drive(
+        #     drive_service, name="Mihir Professional Network", file_type="sheet"
+        # )
+
+        # # drive appends row to spreadsheet
+        # row_data = ["Test 1", "Test 2", "Test 3"]
+
+        # add_row(
+        #     sheets_service, row_data=row_data, sheet_id=sheet_id, tab_name="Contacts"
+        # )
+
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
-        print(f'An error occurred: {error}')
+        print(f"An error occurred: {error}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
