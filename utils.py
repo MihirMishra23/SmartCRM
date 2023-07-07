@@ -270,3 +270,20 @@ def add_row(service, *, row_data: list, sheet_id: str, tab_name: str):
             body=value_range_body,
         )
     ).execute()
+
+
+def read_sheet(
+    service,
+    sheet_id: str,
+    *,
+    range: str,
+    axis: Literal["rows", "columns"] = "rows",
+):
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=sheet_id, range=range, majorDimension=axis.upper())
+        .execute()
+    )
+    values = result.get("values", [])
+    return values
