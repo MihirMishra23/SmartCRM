@@ -79,21 +79,6 @@ def search_messages(service, query: str) -> List[dict[str, str]]:
     return messages
 
 
-# utility functions
-def get_size_format(b, factor=1024, suffix="B"):
-    """
-    Scale bytes to its proper byte format
-    e.g:
-        1253656 => '1.20MB'
-        1253656678 => '1.17GB'
-    """
-    for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
-        if b < factor:
-            return f"{b:.2f}{unit}{suffix}"
-        b /= factor
-    return f"{b:.2f}Y{suffix}"
-
-
 def parse_parts(
     service, parts, folder_name: str, message: dict[str, str]
 ) -> Iterable[str]:
@@ -103,12 +88,9 @@ def parse_parts(
 
     if parts:
         for part in parts:
-            filename = part.get("filename")
             mimeType = part.get("mimeType")
             body = part.get("body")
             data = body.get("data")
-            file_size = body.get("size")
-            part_headers = part.get("headers")
             if part.get("parts"):
                 # recursively call this function when we see that a part
                 # has parts inside
@@ -118,41 +100,11 @@ def parse_parts(
                 text = urlsafe_b64decode(data).decode()
                 # print(text)
                 yield text
-            else:
-                # attachment other than a plain text or HTML
-                for part_header in part_headers:
-                    part_header_name = part_header.get("name")
-                    part_header_value = part_header.get("value")
-                    if part_header_name == "Content-Disposition":
-                        if "attachment" in part_header_value:
-                            # we get the attachment ID
-                            # and make another request to get the attachment itself
-                            print(
-                                "Saving the file:",
-                                filename,
-                                "size:",
-                                get_size_format(file_size),
-                            )
-                            attachment_id = body.get("attachmentId")
-                            attachment = (
-                                service.users()
-                                .messages()
-                                .attachments()
-                                .get(
-                                    id=attachment_id,
-                                    userId="me",
-                                    messageId=message["id"],
-                                )
-                                .execute()
-                            )
-                            data = attachment.get("data")
-                            filepath = os.path.join(folder_name, filename)
-                            if data:
-                                with open(filepath, "wb") as f:
-                                    f.write(urlsafe_b64decode(data))
 
 
-def read_message(service, message: dict[str, str], echo=False) -> Email:
+def read_message(
+    service, message: dict[str, str], *, echo=False, show_trimmed_content=False
+) -> Email:
     """
     This function takes Gmail API `service` and the given `message_id` and does the following:
         - Parses the contents of the message to Email and returns
@@ -177,7 +129,6 @@ def read_message(service, message: dict[str, str], echo=False) -> Email:
     headers = payload.get("headers")
     parts = payload.get("parts")
     folder_name = "email"
-    has_subject = False
     if headers:
         # this section prints email basic info & creates a folder for the email
         for header in headers:
@@ -191,19 +142,18 @@ def read_message(service, message: dict[str, str], echo=False) -> Email:
                 mail.To = value
             if name.lower() == "subject":
                 # make a directory with the name of the subject
-                # folder_name = clean(value)
                 mail.Subject = value
             if name.lower() == "date":
                 # we print the date when the message was sent
                 mail.Date = value
-    folder_name = "attachments/" + mail.Subject
-    if not has_subject:
-        # if the email does not have a subject, then make a folder with "email" name
-        # since folders are created based on subjects
-        if not os.path.isdir(folder_name):
-            os.mkdir(folder_name)
     contents = parse_parts(service, parts, folder_name, message)
     mail.Contents = "\n\n".join([c for c in contents])
+    if not show_trimmed_content:
+        lines = mail.Contents.split("\n")
+        filtered_lines = [line for line in lines if not line.startswith(">")]
+        if len(filtered_lines) < len(lines):
+            filtered_lines = filtered_lines[:-3]
+        mail.Contents = "\n".join(filtered_lines).rstrip()
     if echo:
         print("=" * 20)
         print(
