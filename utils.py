@@ -16,8 +16,11 @@ class Email:
     Contents: str
     Date: datetime
 
-    def __str__(self) -> str:
-        return f"Date: {self.Date}\nTo: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
+    def __str__(self, hide_date: bool = False) -> str:
+        string = f"To: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
+        if not hide_date:
+            string = f"Date: {self.Date}\n" + string
+        return string
 
 
 @dataclass(init=False)
