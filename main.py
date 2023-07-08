@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import openai
 import pandas as pd
 import re
+from datetime import datetime
 
 from utils import *
 
@@ -80,17 +81,21 @@ def main():
             drive_service, name="Mihir Professional Network", file_type="sheet"
         )
 
-        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:D")
+        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:I")
 
         contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
         contact_df = contact_df.set_index("ID")
 
-        results = search_threads(gmail_service, "han@mintlify.com")
+        results = search_threads(gmail_service, "in:sent OR in:inbox")
+        i = 0
         # for each email matched, read it (output plain/text to console & save HTML and attachments)
         for msg in results:
+            i += 1
             message = read_message(gmail_service, msg)
             message.To = extract_substring(message.To)
             message.From = extract_substring(message.From)
+            if message.Cc:
+                message.Cc = extract_substring(message.Cc)
             ids: list = contact_df.index[
                 contact_df["contact info"].str.contains(message.To)
             ].to_list()
@@ -99,18 +104,27 @@ def main():
                     contact_df["contact info"].str.contains(message.From)
                 ].to_list()
             )
-            # print(ids, message.To, message.From)
+            if message.Cc:
+                ids.extend(
+                    contact_df.index[
+                        contact_df["contact info"].str.contains(message.Cc)
+                    ].to_list()
+                )
+
             if len(ids) > 0:
                 emails = read_sheet(sheets_service, sheet_id, range="Emails!A:E")
                 email_df = pd.DataFrame(emails[1:], columns=emails[0])
                 email_df = email_df.set_index("ID")
 
                 if message.__str__(hide_date=True) not in email_df["content"].to_list():
-                    print("Reached")
+                    parsed_date = datetime.strptime(
+                        message.Date, "%a, %d %b %Y %H:%M:%S %z"
+                    )
+                    formatted_date = parsed_date.strftime("%a, %m/%d/%Y %I:%M %p")
                     row_data = [
-                        ",".join(ids),
-                        message.Date,
-                        ",".join(contact_df.loc[ids, "name"].to_list()),
+                        ", ".join(ids),
+                        formatted_date,
+                        ", ".join(contact_df.loc[ids, "name"].to_list()),
                         None,
                         message.__str__(hide_date=True),
                     ]
@@ -120,56 +134,72 @@ def main():
                         row_data=row_data,
                         tab_name="Emails",
                     )
+                    for id in ids:
+                        if (
+                            contact_df.at[id, "last contacted on"] is not None
+                            or datetime.strptime(
+                                contact_df.at[id, "last contacted on"], "%m/%d/%Y"
+                            )
+                            < parsed_date
+                        ):
+                            update_cell(
+                                sheets_service,
+                                cell_value=parsed_date.strftime("%m/%d/%Y"),
+                                cell_loc=f"E{int(id)+1}",
+                                sheet_id=sheet_id,
+                                tab_name="Contacts",
+                            )
+        print(i)
 
-            # summary = (
-            #     openai.ChatCompletion.create(
-            #         model="gpt-3.5-turbo",
-            #         messages=[
-            #             {
-            #                 "role": "system",
-            #                 "content": """I am Mihir Mishra. Refer to Mihir as "you". Summarize the emails I
-            #             give you in 2 or fewer sentences. Never give me my own
-            #             contact information. Use the email handle or email content to fill out all information.
-            #             Your output should be in the following format:
+        # summary = (
+        #     openai.ChatCompletion.create(
+        #         model="gpt-3.5-turbo",
+        #         messages=[
+        #             {
+        #                 "role": "system",
+        #                 "content": """I am Mihir Mishra. Refer to Mihir as "you". Summarize the emails I
+        #             give you in 2 or fewer sentences. Never give me my own
+        #             contact information. Use the email handle or email content to fill out all information.
+        #             Your output should be in the following format:
 
-            #             Name
-            #             Company (and possition if applicable)
-            #             Contact Info
-            #             Summary """,
-            #             },
-            #             {
-            #                 "role": "user",
-            #                 "content": f"{message}",
-            #             },
-            #         ],
-            #         temperature=0.1,
-            #     )
-            #     .choices[0]  # type: ignore
-            #     .message.content
-            # )
+        #             Name
+        #             Company (and possition if applicable)
+        #             Contact Info
+        #             Summary """,
+        #             },
+        #             {
+        #                 "role": "user",
+        #                 "content": f"{message}",
+        #             },
+        #         ],
+        #         temperature=0.1,
+        #     )
+        #     .choices[0]  # type: ignore
+        #     .message.content
+        # )
 
-            # print(summary)
-            # print()
+        # print(summary)
+        # print()
 
-            # info = summary.split("\n")
+        # info = summary.split("\n")
 
-            # # TODO: make this a more robust method of checking if contact already in sheet
-            # if info[0] not in id_names_dict.values():
-            #     row_data = [len(id_names_dict), info[0], info[1], info[2]]
+        # # TODO: make this a more robust method of checking if contact already in sheet
+        # if info[0] not in id_names_dict.values():
+        #     row_data = [len(id_names_dict), info[0], info[1], info[2]]
 
-            #     add_row(
-            #         sheets_service,
-            #         row_data=row_data,
-            #         sheet_id=sheet_id,
-            #         tab_name="Contacts",
-            #     )
-            #     sheet_vals = read_sheet(
-            #         sheets_service, sheet_id, range="Contacts!A:B", axis="columns"
-            #     )
-            #     id_names_dict = {
-            #         sheet_vals[0][i]: sheet_vals[1][i]
-            #         for i in range(len(sheet_vals[0]))
-            #     }
+        #     add_row(
+        #         sheets_service,
+        #         row_data=row_data,
+        #         sheet_id=sheet_id,
+        #         tab_name="Contacts",
+        #     )
+        #     sheet_vals = read_sheet(
+        #         sheets_service, sheet_id, range="Contacts!A:B", axis="columns"
+        #     )
+        #     id_names_dict = {
+        #         sheet_vals[0][i]: sheet_vals[1][i]
+        #         for i in range(len(sheet_vals[0]))
+        #     }
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.

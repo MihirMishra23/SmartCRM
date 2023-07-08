@@ -1,8 +1,7 @@
 from __future__ import print_function
 from typing import Iterable, Any, List, Optional, Literal
 
-import os
-from datetime import datetime
+import io
 
 from dataclasses import dataclass
 from base64 import urlsafe_b64decode
@@ -11,24 +10,22 @@ from base64 import urlsafe_b64decode
 @dataclass(init=False, repr=False)
 class Email:
     To: str
+    Cc: Optional[str] = None
     From: str
     Subject: str
     Contents: str
-    Date: datetime
+    Date: str
 
     def __str__(self, hide_date: bool = False) -> str:
-        string = f"To: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
+        sb = io.StringIO()
         if not hide_date:
-            string = f"Date: {self.Date}\n" + string
+            sb.write(f"Date: {self.Date}\n")
+        sb.write(f"To: {self.To}\n")
+        if self.Cc:
+            sb.write(f"CC: {self.Cc}\n")
+        sb.write(f"From: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}")
+        string = f"To: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
         return string
-
-
-@dataclass(init=False)
-class Contact:
-    name: str
-    email: str
-    phone: str
-    contact: List[Email]
 
 
 def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
@@ -149,6 +146,8 @@ def read_message(
             if name.lower() == "date":
                 # we print the date when the message was sent
                 mail.Date = value
+            if name.lower() == "cc":
+                mail.Cc = value
     contents = parse_parts(service, parts, folder_name, message)
     mail.Contents = "\n\n".join([c for c in contents])
     if not show_trimmed_content:
@@ -206,7 +205,7 @@ def add_row(service, *, row_data: list, sheet_id: str, tab_name: str):
     :param sheet_id: The id of the spreadsheet to add to.
     :param tab_name: The name of the specific tab to add to.
     """
-    value_input_option = "USER_ENTERED"
+    value_input_option = "RAW"
     insert_data_option = "INSERT_ROWS"
     value_range_body = {
         "values": [row_data],
@@ -225,6 +224,34 @@ def add_row(service, *, row_data: list, sheet_id: str, tab_name: str):
     ).execute()
 
 
+def update_cell(
+    service, *, cell_value: Any, cell_loc: str, sheet_id: str, tab_name: str
+):
+    """
+    Updates a cell of the given spreadsheet.
+
+    :param cell_value: The new value replacing the old cell value.
+    :param sheet_id: The id of the spreadsheet to add to.
+    :param tab_name: The name of the specific tab to add to.
+    """
+    value_input_option = "RAW"
+    value_range_body = {
+        "values": [[cell_value]],
+        "majorDimension": "ROWS",
+    }
+    (
+        service.spreadsheets()
+        .values()
+        .update(
+            spreadsheetId=sheet_id,
+            range=f"{tab_name}!{cell_loc}",
+            valueInputOption=value_input_option,
+            # insertDataOption=insert_data_option,
+            body=value_range_body,
+        )
+    ).execute()
+
+
 def read_sheet(
     service,
     sheet_id: str,
@@ -232,6 +259,13 @@ def read_sheet(
     range: str,
     axis: Literal["rows", "columns"] = "rows",
 ):
+    """
+    Returns a 2D list of the sheet section as defined by the range.
+
+    :param sheet_id: The id of the sheet to read.
+    :param range: The range of the sheet to read. e.g. "Sheet1!A:B".
+    :param axis: The organization of the data by rows or columns.
+    """
     result = (
         service.spreadsheets()
         .values()
