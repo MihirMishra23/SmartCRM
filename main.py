@@ -107,7 +107,8 @@ def search_emails_and_update_sheet(
                 parsed_date = datetime.strptime(
                     message.Date, "%a, %d %b %Y %H:%M:%S %z"
                 )
-                formatted_date = parsed_date.strftime("%a, %m/%d/%Y %I:%M %p")
+                formatted_date = parsed_date.strftime("%m/%d/%Y %I:%M %p")
+
                 row_data = [
                     ", ".join(ids),
                     formatted_date,
@@ -189,7 +190,9 @@ def main():
                 contact_df=contact_df,
                 query=f"after: {get_previous_day(last_run_date)}",
             )
-            file.write("\n" + datetime.now().strftime("%Y/%m/%d"))
+            today = datetime.now().strftime("%Y/%m/%d")
+            if today != last_run_date:
+                file.write("\n" + datetime.now().strftime("%Y/%m/%d"))
 
         # summary = (
         #     openai.ChatCompletion.create(
