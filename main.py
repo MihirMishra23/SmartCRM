@@ -12,14 +12,15 @@ from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 import openai
 import pandas as pd
-import re
 from datetime import datetime
+import time
 
 from utils import *
+from command import *
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = [
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
@@ -58,98 +59,137 @@ def connect(
     return creds
 
 
-def extract_substring(text):
-    match = re.search(r"<(.*?)>", text)
-    if match:
-        return match.group(1)
-    else:
-        return text
+def search_emails_and_update_sheet(
+    gmail_service, sheets_service, sheet_id: str, contact_df: pd.DataFrame, query: str
+):
+    """
+    Populates the Emails tab based on all listed contacts in the Contacts tab.
+    """
+    # for contact_address in contact_df["contact info"]:
+    results = search_threads(gmail_service, query=query)
+    # for each email to/from a contact, read it (output plain/text to sheet)
+    for msg in results:
+        # read message
+        message = read_message(gmail_service, msg)
+        message.To = extract_substring(message.To)
+        message.From = extract_substring(message.From)
+        if message.Cc:
+            message.Cc = extract_substring(message.Cc)
+
+        # collect contact ids
+        tos = message.To.split(", ")
+        ids: list = []
+        for To in tos:
+            ids.extend(
+                contact_df.index[contact_df["contact info"].str.contains(To)].to_list()
+            )
+        ids.extend(
+            contact_df.index[
+                contact_df["contact info"].str.contains(message.From)
+            ].to_list()
+        )
+        if message.Cc:
+            ccs = message.Cc.split(", ")
+            for cc in ccs:
+                ids.extend(
+                    contact_df.index[
+                        contact_df["contact info"].str.contains(cc)
+                    ].to_list()
+                )
+
+        # write to Emails tab if the email isn't already in it
+        if len(ids) > 0:
+            emails = read_sheet(sheets_service, sheet_id, range="Emails!A:E")
+            email_df = pd.DataFrame(emails[1:], columns=emails[0])
+            email_df = email_df.set_index("ID")
+
+            if message.__str__(hide_date=True) not in email_df["content"].to_list():
+                parsed_date = datetime.strptime(
+                    message.Date, "%a, %d %b %Y %H:%M:%S %z"
+                )
+                formatted_date = parsed_date.strftime("%a, %m/%d/%Y %I:%M %p")
+                row_data = [
+                    ", ".join(ids),
+                    formatted_date,
+                    ", ".join(contact_df.loc[ids, "name"].to_list()),
+                    None,
+                    message.__str__(hide_date=True),
+                ]
+                add_row(
+                    sheets_service,
+                    sheet_id=sheet_id,
+                    row_data=row_data,
+                    tab_name="Emails",
+                )
+
+                # update last contacted on date in Contacts tab
+                for id in ids:
+                    if (
+                        contact_df.at[id, "last contacted on"] is not None
+                        or datetime.strptime(
+                            contact_df.at[id, "last contacted on"], "%m/%d/%Y"
+                        )
+                        < parsed_date
+                    ):
+                        update_cell(
+                            sheets_service,
+                            cell_value=parsed_date.strftime("%m/%d/%Y"),
+                            cell_loc=f"E{int(id)+1}",
+                            sheet_id=sheet_id,
+                            tab_name="Contacts",
+                        )
 
 
 def main():
-    creds = connect(token_json_path="token.json", cred_json_path="credentials.json")
-    cornell_creds = connect(
-        token_json_path="token_cornell.json", cred_json_path="credentials_cornell.json"
+    gmail_creds = connect(
+        token_json_path=GMAIL_TOKEN_PATH, cred_json_path=GMAIL_CREDENTIALS_PATH
+    )
+    drive_creds = connect(
+        token_json_path=DRIVE_TOKEN_PATH, cred_json_path=DRIVE_CREDENTIALS_PATH
     )
 
     try:
-        gmail_service = build("gmail", "v1", credentials=cornell_creds)
-        drive_service = build("drive", "v3", credentials=creds)
-        sheets_service = build("sheets", "v4", credentials=creds)
+        gmail_service = build("gmail", "v1", credentials=gmail_creds)
+        drive_service = build("drive", "v3", credentials=drive_creds)
+        sheets_service = build("sheets", "v4", credentials=drive_creds)
 
-        sheet_id = search_drive(
-            drive_service, name="Mihir Professional Network", file_type="sheet"
-        )
+        sheet_id = search_drive(drive_service, name=SHEET_NAME, file_type="sheet")
 
         contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:I")
 
         contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
         contact_df = contact_df.set_index("ID")
 
-        results = search_threads(gmail_service, "in:sent OR in:inbox")
-        i = 0
-        # for each email matched, read it (output plain/text to console & save HTML and attachments)
-        for msg in results:
-            i += 1
-            message = read_message(gmail_service, msg)
-            message.To = extract_substring(message.To)
-            message.From = extract_substring(message.From)
-            if message.Cc:
-                message.Cc = extract_substring(message.Cc)
-            ids: list = contact_df.index[
-                contact_df["contact info"].str.contains(message.To)
-            ].to_list()
-            ids.extend(
-                contact_df.index[
-                    contact_df["contact info"].str.contains(message.From)
-                ].to_list()
-            )
-            if message.Cc:
-                ids.extend(
-                    contact_df.index[
-                        contact_df["contact info"].str.contains(message.Cc)
-                    ].to_list()
+        if not INITIALIZED:
+            for contact_address in contact_df["contact info"]:
+                address = contact_address.split("\n")[0]
+                search_emails_and_update_sheet(
+                    gmail_service=gmail_service,
+                    sheets_service=sheets_service,
+                    sheet_id=sheet_id,
+                    contact_df=contact_df,
+                    query=f"to:{address} OR from:{address}",
                 )
+                time.sleep(5)
+            # change the value of INITIALIZED in command.py from False to True
+            with open("command.py", "r") as f:
+                content = f.read()
+                content = content.replace("INITIALIZED = False", "INITIALIZED = True")
+                with open("command.py", "w") as f:
+                    f.write(content)
+            return
 
-            if len(ids) > 0:
-                emails = read_sheet(sheets_service, sheet_id, range="Emails!A:E")
-                email_df = pd.DataFrame(emails[1:], columns=emails[0])
-                email_df = email_df.set_index("ID")
-
-                if message.__str__(hide_date=True) not in email_df["content"].to_list():
-                    parsed_date = datetime.strptime(
-                        message.Date, "%a, %d %b %Y %H:%M:%S %z"
-                    )
-                    formatted_date = parsed_date.strftime("%a, %m/%d/%Y %I:%M %p")
-                    row_data = [
-                        ", ".join(ids),
-                        formatted_date,
-                        ", ".join(contact_df.loc[ids, "name"].to_list()),
-                        None,
-                        message.__str__(hide_date=True),
-                    ]
-                    add_row(
-                        sheets_service,
-                        sheet_id=sheet_id,
-                        row_data=row_data,
-                        tab_name="Emails",
-                    )
-                    for id in ids:
-                        if (
-                            contact_df.at[id, "last contacted on"] is not None
-                            or datetime.strptime(
-                                contact_df.at[id, "last contacted on"], "%m/%d/%Y"
-                            )
-                            < parsed_date
-                        ):
-                            update_cell(
-                                sheets_service,
-                                cell_value=parsed_date.strftime("%m/%d/%Y"),
-                                cell_loc=f"E{int(id)+1}",
-                                sheet_id=sheet_id,
-                                tab_name="Contacts",
-                            )
-        print(i)
+        with open("log.txt", "r+") as file:
+            log = file.read()
+            last_run_date = log.split("\n")[-1]
+            search_emails_and_update_sheet(
+                gmail_service=gmail_service,
+                sheets_service=sheets_service,
+                sheet_id=sheet_id,
+                contact_df=contact_df,
+                query=f"after: {get_previous_day(last_run_date)}",
+            )
+            file.write("\n" + datetime.now().strftime("%Y/%m/%d"))
 
         # summary = (
         #     openai.ChatCompletion.create(
