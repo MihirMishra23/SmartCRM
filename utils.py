@@ -2,6 +2,8 @@ from __future__ import print_function
 from typing import Iterable, Any, List, Optional, Literal
 
 import io
+import re
+from datetime import datetime, timedelta
 
 from dataclasses import dataclass
 from base64 import urlsafe_b64decode
@@ -22,10 +24,20 @@ class Email:
             sb.write(f"Date: {self.Date}\n")
         sb.write(f"To: {self.To}\n")
         if self.Cc:
-            sb.write(f"CC: {self.Cc}\n")
+            sb.write(f"Cc: {self.Cc}\n")
         sb.write(f"From: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}")
-        string = f"To: {self.To}\nFrom: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}"
-        return string
+        return sb.getvalue()
+
+
+def extract_substring(text: str) -> str:
+    """Returns the substrings inside of <> or the string itself if <> does not exist"""
+    lst: list[str] = text.split(", ")
+    for i in range(len(lst)):
+        match = re.search(r"<(.*?)>", lst[i])
+        if match:
+            lst[i] = match.group(1)
+    text = ", ".join(lst)
+    return text
 
 
 def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
@@ -148,6 +160,11 @@ def read_message(
                 mail.Date = value
             if name.lower() == "cc":
                 mail.Cc = value
+        if mail.Cc and (
+            extract_substring(mail.Cc) in extract_substring(mail.To)
+            or extract_substring(mail.Cc) in extract_substring(mail.From)
+        ):
+            mail.Cc = None
     contents = parse_parts(service, parts, folder_name, message)
     mail.Contents = "\n\n".join([c for c in contents])
     if not show_trimmed_content:
@@ -158,9 +175,7 @@ def read_message(
         mail.Contents = "\n".join(filtered_lines).rstrip()
     if echo:
         print("=" * 20)
-        print(
-            f"From: {mail.From}\nTo: {mail.To}\nSubject: {mail.Subject}\n\n{mail.Contents}"
-        )
+        print(mail)
         print("=" * 20)
     return mail
 
@@ -205,7 +220,7 @@ def add_row(service, *, row_data: list, sheet_id: str, tab_name: str):
     :param sheet_id: The id of the spreadsheet to add to.
     :param tab_name: The name of the specific tab to add to.
     """
-    value_input_option = "RAW"
+    value_input_option = "USER_ENTERED"
     insert_data_option = "INSERT_ROWS"
     value_range_body = {
         "values": [row_data],
@@ -234,7 +249,7 @@ def update_cell(
     :param sheet_id: The id of the spreadsheet to add to.
     :param tab_name: The name of the specific tab to add to.
     """
-    value_input_option = "RAW"
+    value_input_option = "USER_ENTERED"
     value_range_body = {
         "values": [[cell_value]],
         "majorDimension": "ROWS",
@@ -274,3 +289,14 @@ def read_sheet(
     )
     values = result.get("values", [])
     return values
+
+
+def get_previous_day(date_string: str) -> str:
+    """
+    Returns the previous day in string format.
+
+    :param date_string: Date string in the format yyyy/mm/dd
+    """
+    date = datetime.strptime(date_string, "%Y/%m/%d")
+    previous_day = date - timedelta(days=1)
+    return previous_day.strftime("%Y/%m/%d")
