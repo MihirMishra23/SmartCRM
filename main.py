@@ -170,6 +170,12 @@ def main():
                     contact_df=contact_df,
                     query=f"to:{address} OR from:{address}",
                 )
+                contact_vals = read_sheet(
+                    sheets_service, sheet_id, range="Contacts!A:I"
+                )
+
+                contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
+                contact_df = contact_df.set_index("ID")
                 time.sleep(5)
             # change the value of INITIALIZED in command.py from False to True
             with open("command.py", "r") as f:
