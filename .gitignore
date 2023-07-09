@@ -1,10 +1,9 @@
 attachments/
 venv/
-credentials_cornell.json
-credentials.json
-token.json
-token_cornell.json
-token.pickle
+gmail_credentials.json
+drive_credentials.json
+gmail_token.json
+drive_token.json
 .env
 
 __pycache__/
