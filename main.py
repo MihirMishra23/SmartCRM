@@ -2,7 +2,6 @@ from __future__ import print_function
 
 import os
 import os.path
-import pickle
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -143,10 +142,10 @@ def search_emails_and_update_sheet(
 
 def main():
     gmail_creds = connect(
-        token_json_path=GMAIL_TOKEN_PATH, cred_json_path=GMAIL_CREDENTIALS_PATH
+        token_json_path="gmail_token.json", cred_json_path=GMAIL_CREDENTIALS_PATH
     )
     drive_creds = connect(
-        token_json_path=DRIVE_TOKEN_PATH, cred_json_path=DRIVE_CREDENTIALS_PATH
+        token_json_path="drive_token.json", cred_json_path=DRIVE_CREDENTIALS_PATH
     )
 
     try:
@@ -179,17 +178,17 @@ def main():
                 with open("command.py", "w") as f:
                     f.write(content)
             return
-
         with open("log.txt", "r+") as file:
             log = file.read()
             last_run_date = log.split("\n")[-1]
-            search_emails_and_update_sheet(
-                gmail_service=gmail_service,
-                sheets_service=sheets_service,
-                sheet_id=sheet_id,
-                contact_df=contact_df,
-                query=f"after: {get_previous_day(last_run_date)}",
-            )
+            if INITIALIZED:
+                search_emails_and_update_sheet(
+                    gmail_service=gmail_service,
+                    sheets_service=sheets_service,
+                    sheet_id=sheet_id,
+                    contact_df=contact_df,
+                    query=f"after: {get_previous_day(last_run_date)}",
+                )
             today = datetime.now().strftime("%Y/%m/%d")
             if today != last_run_date:
                 file.write("\n" + datetime.now().strftime("%Y/%m/%d"))

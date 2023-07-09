@@ -1,9 +1,15 @@
-DRIVE_TOKEN_PATH = "token.json"
-DRIVE_CREDENTIALS_PATH = "credentials.json"
+# this is the drive credentails json path
+# since it should be in the same folder, just put the name of the credentials file
+DRIVE_CREDENTIALS_PATH = "drive_credentials.json"
 
-GMAIL_TOKEN_PATH = "token_cornell.json"
-GMAIL_CREDENTIALS_PATH = "credentials_cornell.json"
+# this is the drive credentails json path
+# since it should be in the same folder, just put the name of the credentials file
+# note that if your using the same google account for both drive and gmail access,
+# this can be equal to DRIVE_CREDENTIALS_PATH
+GMAIL_CREDENTIALS_PATH = "gmail_credentials.json"
 
+# the sheet name that you want the information to be saved to
 SHEET_NAME = "Mihir Professional Network"
 
+# Set to False if you haven't run this before
 INITIALIZED = True
