@@ -63,6 +63,7 @@ def search_emails_and_update_sheet(
 ):
     """
     Populates the Emails tab based on all listed contacts in the Contacts tab.
+    Updates the last contacted on column in the Contacts tab.
     """
     # for contact_address in contact_df["contact info"]:
     results = search_threads(gmail_service, query=query)
@@ -125,19 +126,27 @@ def search_emails_and_update_sheet(
                 # update last contacted on date in Contacts tab
                 for id in ids:
                     if (
-                        contact_df.at[id, "last contacted on"] is not None
+                        contact_df.at[id, "last contacted on"] == ""
                         or datetime.strptime(
-                            contact_df.at[id, "last contacted on"], "%m/%d/%Y"
-                        )
-                        < parsed_date
+                            contact_df.at[id, "last contacted on"], "%m/%d/%y"
+                        ).date()
+                        < parsed_date.date()
                     ):
                         update_cell(
                             sheets_service,
-                            cell_value=parsed_date.strftime("%m/%d/%Y"),
+                            cell_value=parsed_date.strftime("%m/%d/%y"),
                             cell_loc=f"E{int(id)+1}",
                             sheet_id=sheet_id,
                             tab_name="Contacts",
                         )
+                        contact_vals = read_sheet(
+                            sheets_service, sheet_id, range="Contacts!A:I"
+                        )
+
+                        contact_df = pd.DataFrame(
+                            contact_vals[1:], columns=contact_vals[0]
+                        )
+                        contact_df = contact_df.set_index("ID")
 
 
 def main():
