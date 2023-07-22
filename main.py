@@ -113,7 +113,7 @@ def search_emails_and_update_sheet(
                     ", ".join(ids),
                     formatted_date,
                     ", ".join(contact_df.loc[ids, "name"].to_list()),
-                    None,
+                    summarize_email("Mihir", message),  # type: ignore
                     message.__str__(hide_date=True),
                 ]
                 add_row(
@@ -125,13 +125,20 @@ def search_emails_and_update_sheet(
 
                 # update last contacted on date in Contacts tab
                 for id in ids:
+                    d = None
                     if (
-                        contact_df.at[id, "last contacted on"] == ""
-                        or datetime.strptime(
-                            contact_df.at[id, "last contacted on"], "%m/%d/%y"
-                        ).date()
-                        < parsed_date.date()
+                        contact_df.at[id, "last contacted on"] != ""
+                        and contact_df.at[id, "last contacted on"] is not None
                     ):
+                        try:
+                            d = datetime.strptime(
+                                contact_df.at[id, "last contacted on"], "%m/%d/%y"
+                            ).date()
+                        except ValueError:
+                            d = datetime.strptime(
+                                contact_df.at[id, "last contacted on"], "%m/%d/%Y"
+                            ).date()
+                    if d is None or d < parsed_date.date():
                         update_cell(
                             sheets_service,
                             cell_value=parsed_date.strftime("%m/%d/%y"),
@@ -139,14 +146,17 @@ def search_emails_and_update_sheet(
                             sheet_id=sheet_id,
                             tab_name="Contacts",
                         )
-                        contact_vals = read_sheet(
-                            sheets_service, sheet_id, range="Contacts!A:I"
+                        contact_df.loc[id, "last contacted on"] = parsed_date.strftime(
+                            "%m/%d/%y"
                         )
+                        # contact_vals = read_sheet(
+                        #     sheets_service, sheet_id, range="Contacts!A:I"
+                        # )
 
-                        contact_df = pd.DataFrame(
-                            contact_vals[1:], columns=contact_vals[0]
-                        )
-                        contact_df = contact_df.set_index("ID")
+                        # contact_df = pd.DataFrame(
+                        #     contact_vals[1:], columns=contact_vals[0]
+                        # )
+                        # contact_df = contact_df.set_index("ID")
 
 
 def main():
@@ -190,8 +200,8 @@ def main():
             with open("command.py", "r") as f:
                 content = f.read()
                 content = content.replace("INITIALIZED = False", "INITIALIZED = True")
-                with open("command.py", "w") as f:
-                    f.write(content)
+            with open("command.py", "w") as f:
+                f.write(content)
         with open("log.txt", "r+") as file:
             log = file.read()
             last_run_date = log.split("\n")[-1]
@@ -205,57 +215,9 @@ def main():
                 )
             today = datetime.now().strftime("%Y/%m/%d")
             if today != last_run_date:
-                file.write("\n" + datetime.now().strftime("%Y/%m/%d"))
-
-        # summary = (
-        #     openai.ChatCompletion.create(
-        #         model="gpt-3.5-turbo",
-        #         messages=[
-        #             {
-        #                 "role": "system",
-        #                 "content": """I am Mihir Mishra. Refer to Mihir as "you". Summarize the emails I
-        #             give you in 2 or fewer sentences. Never give me my own
-        #             contact information. Use the email handle or email content to fill out all information.
-        #             Your output should be in the following format:
-
-        #             Name
-        #             Company (and possition if applicable)
-        #             Contact Info
-        #             Summary """,
-        #             },
-        #             {
-        #                 "role": "user",
-        #                 "content": f"{message}",
-        #             },
-        #         ],
-        #         temperature=0.1,
-        #     )
-        #     .choices[0]  # type: ignore
-        #     .message.content
-        # )
-
-        # print(summary)
-        # print()
-
-        # info = summary.split("\n")
-
-        # # TODO: make this a more robust method of checking if contact already in sheet
-        # if info[0] not in id_names_dict.values():
-        #     row_data = [len(id_names_dict), info[0], info[1], info[2]]
-
-        #     add_row(
-        #         sheets_service,
-        #         row_data=row_data,
-        #         sheet_id=sheet_id,
-        #         tab_name="Contacts",
-        #     )
-        #     sheet_vals = read_sheet(
-        #         sheets_service, sheet_id, range="Contacts!A:B", axis="columns"
-        #     )
-        #     id_names_dict = {
-        #         sheet_vals[0][i]: sheet_vals[1][i]
-        #         for i in range(len(sheet_vals[0]))
-        #     }
+                if INITIALIZED:
+                    file.write("\n")
+                file.write(datetime.now().strftime("%Y/%m/%d"))
 
     except HttpError as error:
         # TODO(developer) - Handle errors from gmail API.
