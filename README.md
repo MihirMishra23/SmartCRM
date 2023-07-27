@@ -1,4 +1,4 @@
-# Inbox-Manager
+# SmartCRM
 
 ## Initialization
 
