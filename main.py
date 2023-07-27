@@ -177,8 +177,7 @@ def main():
 
         sheet_id = search_drive(drive_service, name=SHEET_NAME, file_type="sheet")
 
-        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:I")
-
+        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:J")
         contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
         contact_df = contact_df.set_index("ID")
 
@@ -222,8 +221,40 @@ def main():
                     file.write("\n")
                 file.write(datetime.now().strftime("%Y/%m/%d"))
 
+        # Reminders. Sends one reminder email if the contact has not been reached
+        # out to after a period of time specified by the sheet
+        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:J")
+        contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
+        contact_df = contact_df.set_index("ID")
+        for _, row in contact_df.iterrows():
+            if row["reminder"] == "" or row["reminder"] is None:
+                continue
+            last = row["days since last contact"]
+            followup = row["days until next follow up"]
+            if not last:
+                continue
+            if followup.strip() == "" or followup is None:
+                followup = 200
+            if int(last) >= followup:
+                date = datetime.strptime(row["last contacted on"], "%m/%d/%Y")
+                date = datetime.strftime(date, "%Y/%m/%d")
+
+                msg = [
+                    m
+                    for m in search_threads(
+                        gmail_service, f"after: {date} SmartCRM Reminder"
+                    )
+                ]
+                if len(msg) <= 0:
+                    send_email(
+                        gmail_service,
+                        to="mrm367@cornell.edu",
+                        subject=f"SmartCRM Reminder: Follow up with {row['name']}",
+                        body=f"The last time you reached out to {row['name']} was on \
+{row['last contacted on']} ({row['days since last contact']} days ago). Please refer to \
+https://docs.google.com/spreadsheets/d/{sheet_id} for additional information.",
+                    )
     except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
         print(f"An error occurred: {error}")
 
 
