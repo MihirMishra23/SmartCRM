@@ -1,10 +1,11 @@
-from typing import Iterable, Any, List, Optional
+from typing import Iterable, Any, List, Optional, Literal
 
 import io
 import re
 
 from dataclasses import dataclass
-from base64 import urlsafe_b64decode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from email.mime.text import MIMEText
 
 
 @dataclass(init=False, repr=False)
@@ -176,3 +177,32 @@ def read_message(
         print(mail)
         print("=" * 20)
     return mail
+
+
+def send_email(
+    service,
+    to: str,
+    subject: str,
+    body: str,
+):
+    """
+    Sends an email based on the given parameters. Returns a None object if send fails.
+
+    :param to: The email address of the recipient.
+    :param subject: The subject of the email.
+    :param body: The body (main content) of the email.
+    """
+    message = MIMEText(body)
+    message["to"] = to
+    message["subject"] = subject
+
+    # Encode the message and convert it to base64
+    message_bytes = message.as_bytes()
+    message_b64 = urlsafe_b64encode(message_bytes).decode("utf-8")
+
+    return (
+        service.users()
+        .messages()
+        .send(userId="me", body={"raw": message_b64})
+        .execute()
+    )
