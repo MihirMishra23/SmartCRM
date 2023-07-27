@@ -234,7 +234,7 @@ def main():
             if not last:
                 continue
             if followup.strip() == "" or followup is None:
-                followup = 200
+                followup = 90
             if int(last) >= followup:
                 date = datetime.strptime(row["last contacted on"], "%m/%d/%Y")
                 date = datetime.strftime(date, "%Y/%m/%d")
