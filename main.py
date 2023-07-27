@@ -234,7 +234,7 @@ def main():
             if not last:
                 continue
             if followup.strip() == "" or followup is None:
-                followup = 200
+                followup = 90
             if int(last) >= followup:
                 date = datetime.strptime(row["last contacted on"], "%m/%d/%Y")
                 date = datetime.strftime(date, "%Y/%m/%d")
@@ -242,10 +242,11 @@ def main():
                 msg = [
                     m
                     for m in search_threads(
-                        gmail_service, f"after: {date} SmartCRM Reminder"
+                        gmail_service,
+                        f"after: {date} SmartCRM Reminder: Follow up with {row['name']}",
                     )
                 ]
-                if len(msg) <= 0:
+                if len(msg) == 0:
                     send_email(
                         gmail_service,
                         to="mrm367@cornell.edu",

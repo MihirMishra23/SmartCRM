@@ -47,14 +47,22 @@ def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
     :param service: The Resource item from googleapiclient.discovery.build()
     :param query: The query term. Ex: label:Networking
     """
-    results = (
-        service.users()
-        .threads()
-        .list(userId="me", q=query)
-        .execute()
-        .get("threads", [])
-    )
-    for result in results:
+    results = service.users().threads().list(userId="me", q=query).execute()
+    threads = results.get("threads", [])
+
+    while "nextPageToken" in results:
+        page_token = results["nextPageToken"]
+
+        results = (
+            service.users()
+            .threads()
+            .list(userId="me", q=query, pageToken=page_token)
+            .execute()
+        )
+
+        threads.extend(results.get("threads", []))
+
+    for result in threads:
         thread: List[dict[str, Any]] = (
             service.users()
             .threads()
@@ -159,6 +167,8 @@ def read_message(
                 mail.Date = value
             if name.lower() == "cc":
                 mail.Cc = value
+        if "To" not in mail.__dict__.keys():
+            mail.To = ""
         if mail.Cc and (
             extract_substring(mail.Cc) in extract_substring(mail.To)
             or extract_substring(mail.Cc) in extract_substring(mail.From)
