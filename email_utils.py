@@ -39,7 +39,9 @@ def extract_substring(text: str) -> str:
     return text
 
 
-def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
+def search_threads(
+    service, query: str, newest_first: bool = False
+) -> Iterable[dict[str, Any]]:
     """
     Returns an iterable of the message objects based on the given query.
     Searches entire thread instead of just the first email.
@@ -69,6 +71,9 @@ def search_threads(service, query: str) -> Iterable[dict[str, Any]]:
             .get(userId="me", id=result["id"])
             .execute()["messages"]
         )
+        if newest_first:
+            x = [msg for msg in thread]
+            thread = x[::-1]
         for msg in thread:
             yield msg
 

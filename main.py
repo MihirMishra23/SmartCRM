@@ -13,6 +13,7 @@ import openai
 import pandas as pd
 from datetime import datetime
 import time
+import googlesearch
 
 from utils import *
 from email_utils import *
@@ -68,7 +69,6 @@ def search_emails_and_update_sheet(
     Populates the Emails tab based on all listed contacts in the Contacts tab.
     Updates the last contacted on column in the Contacts tab.
     """
-    # for contact_address in contact_df["contact info"]:
     results = search_threads(gmail_service, query=query)
     # for each email to/from a contact, read it (output plain/text to sheet)
     for msg in results:
@@ -116,9 +116,10 @@ def search_emails_and_update_sheet(
                     ", ".join(ids),
                     formatted_date,
                     ", ".join(contact_df.loc[ids, "name"].to_list()),
-                    summarize_email("Mihir", message),  # type: ignore
+                    summarize_email(NAME, message),  # type: ignore
                     message.__str__(hide_date=True),
                 ]
+                time.sleep(1)
                 add_row(
                     sheets_service,
                     sheet_id=sheet_id,
@@ -152,14 +153,6 @@ def search_emails_and_update_sheet(
                         contact_df.loc[id, "last contacted on"] = parsed_date.strftime(
                             "%m/%d/%y"
                         )
-                        # contact_vals = read_sheet(
-                        #     sheets_service, sheet_id, range="Contacts!A:I"
-                        # )
-
-                        # contact_df = pd.DataFrame(
-                        #     contact_vals[1:], columns=contact_vals[0]
-                        # )
-                        # contact_df = contact_df.set_index("ID")
 
 
 def main():
@@ -192,7 +185,7 @@ def main():
                     query=f"to:{address} OR from:{address}",
                 )
                 contact_vals = read_sheet(
-                    sheets_service, sheet_id, range="Contacts!A:I"
+                    sheets_service, sheet_id, range="Contacts!A:J"
                 )
 
                 contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
@@ -221,6 +214,7 @@ def main():
                     file.write("\n")
                 file.write(datetime.now().strftime("%Y/%m/%d"))
 
+        # _____________________________________________________________________
         # Reminders. Sends one reminder email if the contact has not been reached
         # out to after a period of time specified by the sheet
         contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:J")
@@ -247,14 +241,58 @@ def main():
                     )
                 ]
                 if len(msg) == 0:
+                    string = ""
+                    url = googlesearch.search(
+                        f"techcrunch new products at {row['company']}",
+                        num_results=3,
+                        lang="en",
+                    )
+                    for _ in range(3):
+                        link = next(url)
+                        string += summarize_webpage(link)  # type: ignore
+                    url = googlesearch.search(
+                        f"the verge new products at {row['company']}",
+                        num_results=3,
+                        lang="en",
+                    )
+                    for _ in range(3):
+                        link = next(url)
+                        string += summarize_webpage(link)  # type: ignore
+                    company_innovations = summarize_company_innovations(string)
+
+                    threads = search_threads(
+                        gmail_service,
+                        f"to: {row['contact info']} OR from: {row['contact info']}",
+                        newest_first=True,
+                    )
+                    msgs = []
+                    num_msgs = 0
+                    for msg in threads:
+                        msgs.append(read_message(gmail_service, msg).__str__())
+                        num_msgs += 1
+                        if num_msgs >= 3:
+                            break
+
+                    potential_response = generate_response_email_from_messages(
+                        "\n".join(msgs), NAME
+                    )
+
                     send_email(
                         gmail_service,
                         to="mrm367@cornell.edu",
                         subject=f"SmartCRM Reminder: Follow up with {row['name']}",
-                        body=f"The last time you reached out to {row['name']} was on \
+                        body=f"""The last time you reached out to {row['name']} was on \
 {row['last contacted on']} ({row['days since last contact']} days ago). Please refer to \
-https://docs.google.com/spreadsheets/d/{sheet_id} for additional information.",
+https://docs.google.com/spreadsheets/d/{sheet_id} for additional information.
+
+Potential Response:
+{potential_response}
+
+Recent Company Innovations (note that this may not work for small startups):
+{company_innovations}
+""",
                     )
+
     except HttpError as error:
         print(f"An error occurred: {error}")
 

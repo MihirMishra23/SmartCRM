@@ -8,8 +8,11 @@ DRIVE_CREDENTIALS_PATH = "drive_credentials.json"
 # this can be equal to DRIVE_CREDENTIALS_PATH
 GMAIL_CREDENTIALS_PATH = "gmail_credentials.json"
 
+# put your name here
+NAME = "Mihir Mishra"
+
 # the sheet name that you want the information to be saved to
 SHEET_NAME = "Mihir Professional Network"
 
-# Set to False if you haven't run this before
+# set to False if you haven't run this before
 INITIALIZED = True
