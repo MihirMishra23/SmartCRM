@@ -14,6 +14,7 @@ import pandas as pd
 from datetime import datetime
 import time
 import googlesearch
+import csv
 
 from utils import *
 from email_utils import *
@@ -70,6 +71,7 @@ def search_emails_and_update_sheet(
     Updates the last contacted on column in the Contacts tab.
     """
     results = search_threads(gmail_service, query=query)
+
     # for each email to/from a contact, read it (output plain/text to sheet)
     for msg in results:
         # read message
@@ -112,11 +114,16 @@ def search_emails_and_update_sheet(
                 )
                 formatted_date = parsed_date.strftime("%m/%d/%Y %I:%M %p")
 
+                try:
+                    summary = summarize_email(NAME, message)  # type: ignore
+                except openai.InvalidRequestError:
+                    summary = "Summarization failed"
+
                 row_data = [
                     ", ".join(ids),
                     formatted_date,
                     ", ".join(contact_df.loc[ids, "name"].to_list()),
-                    summarize_email(NAME, message),  # type: ignore
+                    summary,
                     message.__str__(hide_date=True),
                 ]
                 time.sleep(1)
@@ -170,12 +177,25 @@ def main():
 
         sheet_id = search_drive(drive_service, name=SHEET_NAME, file_type="sheet")
 
-        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:J")
-        contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
+        contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
         contact_df = contact_df.set_index("ID")
 
-        if not INITIALIZED:
-            for contact_address in contact_df["contact info"]:
+        new_contacts = None
+        if os.path.exists("contacts.csv"):
+            og_contact_df = pd.read_csv("contacts.csv")
+            og_contact_df = og_contact_df.set_index("ID")  # type: ignore
+            new_contacts = contact_df.loc[
+                [row for row in contact_df.index if row not in og_contact_df.index]
+            ]
+
+        with open("log.txt", "r+") as file:
+            initialized = file.read() != ""
+
+        if not initialized:
+            for _, row in contact_df.iterrows():
+                if row["active"].strip() in {"n", "no"}:
+                    continue
+                contact_address = row["contact info"]
                 address = contact_address.split("\n")[0]
                 search_emails_and_update_sheet(
                     gmail_service=gmail_service,
@@ -184,23 +204,30 @@ def main():
                     contact_df=contact_df,
                     query=f"to:{address} OR from:{address}",
                 )
-                contact_vals = read_sheet(
-                    sheets_service, sheet_id, range="Contacts!A:J"
-                )
+                contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
 
-                contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
                 contact_df = contact_df.set_index("ID")
                 time.sleep(5)
-            # change the value of INITIALIZED in command.py from False to True
-            with open("command.py", "r") as f:
-                content = f.read()
-                content = content.replace("INITIALIZED = False", "INITIALIZED = True")
-            with open("command.py", "w") as f:
-                f.write(content)
+        elif new_contacts is not None:
+            for _, row in new_contacts.iterrows():
+                if row["active"].strip() in {"n", "no"}:
+                    continue
+                address = row["contact info"].split("\n")[0]
+                search_emails_and_update_sheet(
+                    gmail_service=gmail_service,
+                    sheets_service=sheets_service,
+                    sheet_id=sheet_id,
+                    contact_df=contact_df,
+                    query=f"to:{address} OR from:{address}",
+                )
+                contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
+
+                contact_df = contact_df.set_index("ID")
+                time.sleep(5)
         with open("log.txt", "r+") as file:
             log = file.read()
             last_run_date = log.split("\n")[-1]
-            if INITIALIZED:
+            if initialized:
                 search_emails_and_update_sheet(
                     gmail_service=gmail_service,
                     sheets_service=sheets_service,
@@ -210,15 +237,15 @@ def main():
                 )
             today = datetime.now().strftime("%Y/%m/%d")
             if today != last_run_date:
-                if INITIALIZED:
+                if initialized:
                     file.write("\n")
                 file.write(datetime.now().strftime("%Y/%m/%d"))
+        contact_df.to_csv("contacts.csv")
 
         # _____________________________________________________________________
         # Reminders. Sends one reminder email if the contact has not been reached
         # out to after a period of time specified by the sheet
-        contact_vals = read_sheet(sheets_service, sheet_id, range="Contacts!A:J")
-        contact_df = pd.DataFrame(contact_vals[1:], columns=contact_vals[0])
+        contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
         contact_df = contact_df.set_index("ID")
         for _, row in contact_df.iterrows():
             if row["reminder"] == "" or row["reminder"] is None:

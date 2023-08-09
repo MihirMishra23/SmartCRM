@@ -124,7 +124,7 @@ Best,
 
 Example 2: If it seems that the previous messages are trying to set up a meeting \
 time, the response email should be a meeting setup email such as this one:
-Hi [name],
+Hi,
 
 I just wanted to follow up on this. Let me know what days and times work best \
 for you and I can send a calendar invite.

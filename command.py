@@ -13,6 +13,3 @@ NAME = "Mihir Mishra"
 
 # the sheet name that you want the information to be saved to
 SHEET_NAME = "Mihir Professional Network"
-
-# set to False if you haven't run this before
-INITIALIZED = True

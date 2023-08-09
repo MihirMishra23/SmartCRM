@@ -1,4 +1,5 @@
-from typing import Any, Optional, Literal
+from typing import Any, Optional, Literal, List
+import pandas as pd
 
 
 def search_drive(
@@ -94,7 +95,7 @@ def read_sheet(
     *,
     range: str,
     axis: Literal["rows", "columns"] = "rows",
-):
+) -> pd.DataFrame:
     """
     Returns a 2D list of the sheet section as defined by the range.
 
@@ -105,8 +106,18 @@ def read_sheet(
     result = (
         service.spreadsheets()
         .values()
-        .get(spreadsheetId=sheet_id, range=range, majorDimension=axis.upper())
+        .get(
+            spreadsheetId=sheet_id,
+            range=range,
+            majorDimension=axis.upper(),
+        )
         .execute()
     )
     values = result.get("values", [])
-    return values
+    max_len = max(len(row) for row in values)
+    for row in values:
+        row.extend([None] * (max_len - len(row)))
+    df = pd.DataFrame(values[1:], columns=values[0])
+    # df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.replace(["", None], "", regex=True)
+    return df
