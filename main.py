@@ -64,18 +64,22 @@ def connect(
 
 
 def search_emails_and_update_sheet(
-    gmail_service, sheets_service, sheet_id: str, contact_df: pd.DataFrame, query: str
+    gmail_service: EmailService,
+    drive_service: DriveService,
+    sheet_id: str,
+    contact_df: pd.DataFrame,
+    query: str,
 ):
     """
     Populates the Emails tab based on all listed contacts in the Contacts tab.
     Updates the last contacted on column in the Contacts tab.
     """
-    results = search_threads(gmail_service, query=query)
+    results = gmail_service.search_threads(query=query)
 
     # for each email to/from a contact, read it (output plain/text to sheet)
     for msg in results:
         # read message
-        message = read_message(gmail_service, msg)
+        message = gmail_service.read_message(msg)
         message.To = extract_substring(message.To)
         message.From = extract_substring(message.From)
         if message.Cc:
@@ -104,9 +108,7 @@ def search_emails_and_update_sheet(
 
         # write to Emails tab if the email isn't already in it
         if len(ids) > 0:
-            emails = read_sheet(sheets_service, sheet_id, range="Emails!A:E")
-            email_df = pd.DataFrame(emails[1:], columns=emails[0])
-            email_df = email_df.set_index("ID")
+            email_df = drive_service.read_sheet(sheet_id, range="Emails!A:E")
 
             if message.__str__(hide_date=True) not in email_df["content"].to_list():
                 parsed_date = datetime.strptime(
@@ -119,18 +121,23 @@ def search_emails_and_update_sheet(
                 except openai.InvalidRequestError:
                     summary = "Summarization failed"
 
-                row_data = [
-                    ", ".join(ids),
-                    formatted_date,
-                    ", ".join(contact_df.loc[ids, "name"].to_list()),
-                    summary,
-                    message.__str__(hide_date=True),
-                ]
+                row_data = {col: "" for col in email_df.columns}
+                row_data.update(
+                    {
+                        "ID": ", ".join(ids),
+                        "date": formatted_date,
+                        "contact name(s)": ", ".join(
+                            contact_df.loc[ids, "name"].to_list()
+                        ),
+                        "summary": summary,
+                        "content": message.__str__(hide_date=True),
+                    }
+                )
+                email_df.append(row_data, ignore_index=True)
                 time.sleep(1)
-                add_row(
-                    sheets_service,
+                drive_service.add_row(
                     sheet_id=sheet_id,
-                    row_data=row_data,
+                    row_data=email_df.iloc[-1].to_list(),
                     tab_name="Emails",
                 )
 
@@ -150,8 +157,7 @@ def search_emails_and_update_sheet(
                                 contact_df.at[id, "last contacted on"], "%m/%d/%Y"
                             ).date()
                     if d is None or d < parsed_date.date():
-                        update_cell(
-                            sheets_service,
+                        drive_service.update_cell(
                             cell_value=parsed_date.strftime("%m/%d/%y"),
                             cell_loc=f"E{int(id)+1}",
                             sheet_id=sheet_id,
@@ -171,13 +177,15 @@ def main():
     )
 
     try:
-        gmail_service = build("gmail", "v1", credentials=gmail_creds)
-        drive_service = build("drive", "v3", credentials=drive_creds)
-        sheets_service = build("sheets", "v4", credentials=drive_creds)
+        gmail_service = EmailService(build("gmail", "v1", credentials=gmail_creds))
+        drive_service = DriveService(
+            drive_service=build("drive", "v3", credentials=drive_creds),
+            sheets_service=build("sheets", "v4", credentials=drive_creds),
+        )
 
-        sheet_id = search_drive(drive_service, name=SHEET_NAME, file_type="sheet")
+        sheet_id = drive_service.search_drive(name=SHEET_NAME, file_type="sheet")
 
-        contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
+        contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
         contact_df = contact_df.set_index("ID")
 
         new_contacts = None
@@ -193,34 +201,34 @@ def main():
 
         if not initialized:
             for _, row in contact_df.iterrows():
-                if row["active"].strip() in {"n", "no"}:
+                if row["active"].strip().lower() in {"n", "no"}:
                     continue
                 contact_address = row["contact info"]
                 address = contact_address.split("\n")[0]
                 search_emails_and_update_sheet(
                     gmail_service=gmail_service,
-                    sheets_service=sheets_service,
+                    drive_service=drive_service,
                     sheet_id=sheet_id,
                     contact_df=contact_df,
                     query=f"to:{address} OR from:{address}",
                 )
-                contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
+                contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
 
                 contact_df = contact_df.set_index("ID")
                 time.sleep(5)
         elif new_contacts is not None:
             for _, row in new_contacts.iterrows():
-                if row["active"].strip() in {"n", "no"}:
+                if row["active"].strip().lower() in {"n", "no"}:
                     continue
                 address = row["contact info"].split("\n")[0]
                 search_emails_and_update_sheet(
                     gmail_service=gmail_service,
-                    sheets_service=sheets_service,
+                    drive_service=drive_service,
                     sheet_id=sheet_id,
                     contact_df=contact_df,
                     query=f"to:{address} OR from:{address}",
                 )
-                contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
+                contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
 
                 contact_df = contact_df.set_index("ID")
                 time.sleep(5)
@@ -230,7 +238,7 @@ def main():
             if initialized:
                 search_emails_and_update_sheet(
                     gmail_service=gmail_service,
-                    sheets_service=sheets_service,
+                    drive_service=drive_service,
                     sheet_id=sheet_id,
                     contact_df=contact_df,
                     query=f"after: {get_previous_day(last_run_date)}",
@@ -245,7 +253,7 @@ def main():
         # _____________________________________________________________________
         # Reminders. Sends one reminder email if the contact has not been reached
         # out to after a period of time specified by the sheet
-        contact_df = read_sheet(sheets_service, sheet_id, range="Contacts!A:M")
+        contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
         contact_df = contact_df.set_index("ID")
         for _, row in contact_df.iterrows():
             if row["reminder"] == "" or row["reminder"] is None:
@@ -262,8 +270,7 @@ def main():
 
                 msg = [
                     m
-                    for m in search_threads(
-                        gmail_service,
+                    for m in gmail_service.search_threads(
                         f"after: {date} SmartCRM Reminder: Follow up with {row['name']}",
                     )
                 ]
@@ -287,15 +294,14 @@ def main():
                         string += summarize_webpage(link)  # type: ignore
                     company_innovations = summarize_company_innovations(string)
 
-                    threads = search_threads(
-                        gmail_service,
+                    threads = gmail_service.search_threads(
                         f"to: {row['contact info']} OR from: {row['contact info']}",
                         newest_first=True,
                     )
                     msgs = []
                     num_msgs = 0
                     for msg in threads:
-                        msgs.append(read_message(gmail_service, msg).__str__())
+                        msgs.append(gmail_service.read_message(msg).__str__())
                         num_msgs += 1
                         if num_msgs >= 3:
                             break
@@ -304,8 +310,7 @@ def main():
                         "\n".join(msgs), NAME
                     )
 
-                    send_email(
-                        gmail_service,
+                    gmail_service.send_email(
                         to="mrm367@cornell.edu",
                         subject=f"SmartCRM Reminder: Follow up with {row['name']}",
                         body=f"""The last time you reached out to {row['name']} was on \
