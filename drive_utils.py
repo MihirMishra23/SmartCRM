@@ -122,6 +122,6 @@ class DriveService:
         for row in values:
             row.extend([None] * (max_len - len(row)))
         df = pd.DataFrame(values[1:], columns=values[0])
-        df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
         df = df.replace(["", None], "", regex=True)
         return df

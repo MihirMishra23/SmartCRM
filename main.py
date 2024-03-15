@@ -108,7 +108,7 @@ def search_emails_and_update_sheet(
 
         # write to Emails tab if the email isn't already in it
         if len(ids) > 0:
-            email_df = drive_service.read_sheet(sheet_id, range="Emails!A:E")
+            email_df = drive_service.read_sheet(sheet_id, range="Emails!A:M")
 
             if message.__str__(hide_date=True) not in email_df["content"].to_list():
                 parsed_date = datetime.strptime(
@@ -118,7 +118,7 @@ def search_emails_and_update_sheet(
 
                 try:
                     summary = summarize_email(NAME, message)  # type: ignore
-                except openai.InvalidRequestError:
+                except openai.BadRequestError:
                     summary = "Summarization failed"
 
                 row_data = {col: "" for col in email_df.columns}
@@ -133,7 +133,7 @@ def search_emails_and_update_sheet(
                         "content": message.__str__(hide_date=True),
                     }
                 )
-                email_df.append(row_data, ignore_index=True)
+                email_df = email_df.append(row_data, ignore_index=True)
                 time.sleep(1)
                 drive_service.add_row(
                     sheet_id=sheet_id,
@@ -241,8 +241,10 @@ def main():
                     drive_service=drive_service,
                     sheet_id=sheet_id,
                     contact_df=contact_df,
-                    query=f"after: {get_previous_day(last_run_date)}",
+                    query=f"after: {get_previous_day(last_run_date)} AND -to:('')",
                 )
+            # gmail search query for emails sent after last run date that don't have an empty to field
+            query = f"after: {last_run_date} AND in:inbox AND to:*"
             today = datetime.now().strftime("%Y/%m/%d")
             if today != last_run_date:
                 if initialized:
@@ -326,6 +328,7 @@ Recent Company Innovations (note that this may not work for small startups):
                     )
 
     except HttpError as error:
+        print(type(error))
         print(f"An error occurred: {error}")
 
 
