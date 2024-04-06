@@ -27,6 +27,20 @@ class Email:
         sb.write(f"From: {self.From}\nSubject: {self.Subject}\n\n{self.Contents}")
         return sb.getvalue()
 
+    def get_contact_names(self) -> List[str]:
+        """Returns a list of contact names from the email"""
+        contacts = self.To.split(", ") + self.From.split(",")
+        if self.Cc:
+            contacts += self.Cc.split(",")
+        return [name.split("<")[0].strip() for name in contacts]
+
+    def get_contact_emails(self) -> List[str]:
+        """Returns a list of contact emails from the email"""
+        contacts = self.To.split(", ") + self.From.split(",")
+        if self.Cc:
+            contacts += self.Cc.split(",")
+        return [re.search(r"<(.*?)>", name).group(1) for name in contacts]  # type: ignore
+
 
 def extract_substring(text: str) -> str:
     """Returns the substrings inside of <> or the string itself if <> does not exist"""
