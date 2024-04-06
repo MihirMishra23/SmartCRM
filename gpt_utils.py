@@ -18,7 +18,7 @@ def summarize_email(user: str, message: str) -> str:
     """
 
     summary = (
-        openai.ChatCompletion.create(
+        openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
@@ -40,7 +40,7 @@ def summarize_email(user: str, message: str) -> str:
         .message.content
     )
 
-    return summary
+    return summary # type: ignore
 
 
 def summarize_webpage(url: str):
@@ -73,8 +73,8 @@ def summarize_webpage(url: str):
 
 def summarize_company_innovations(text: str):
     summary = (
-        openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        openai.chat.completions.create(
+            model="gpt-4",
             messages=[
                 {
                     "role": "system",
@@ -101,8 +101,8 @@ etc.""",
 
 def generate_response_email_from_messages(user: str, messages: str):
     summary = (
-        openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        openai.chat.completions.create(
+            model="gpt-4",
             messages=[
                 {
                     "role": "system",
