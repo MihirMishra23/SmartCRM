@@ -14,12 +14,13 @@ import pandas as pd
 from datetime import datetime
 import time
 import googlesearch
-import csv
+import psycopg2
 
 from utils import *
 from email_utils import *
 from drive_utils import *
 from gpt_utils import *
+import postgres_utils
 from command import *
 
 # If modifying these scopes, delete the file token.json.
@@ -33,7 +34,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-def connect(
+def connect_google(
     token_json_path: str = "token.json", cred_json_path: str = "credentials.json"
 ):
     """
@@ -53,6 +54,7 @@ def connect(
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            print("Refreshing credentials")
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(cred_json_path, SCOPES)
@@ -168,15 +170,43 @@ def search_emails_and_update_sheet(
                         )
 
 
+def populate_emails(
+    gmail_service: EmailService,
+    db: postgres_utils.DataBase,
+):
+    """
+    Populates the Emails tab based on all listed contacts in the Contacts tab.
+    """
+    for contact in db.fetch_contacts():
+        name = contact[0]
+        company = contact[1]
+        contact_info = contact[2]
+        last_contacted = contact[3]
+        query = f"to:{contact_info} OR from:{contact_info}"
+        results = gmail_service.search_threads(query=query)
+        for msg in results:
+            # read message
+            email = gmail_service.read_message(msg)
+            email_contacts = email.get_contact_names()
+            # change format of date to match postgres db
+            datetime_obj = datetime.strptime(email.Date, "%a, %d %b %Y %H:%M:%S %z")
+            email_date = datetime_obj.date().isoformat()
+            db.add_email(email_contacts, email_date, email.Contents)
+
+
 def main():
-    gmail_creds = connect(
+    gmail_creds = connect_google(
         token_json_path="gmail_token.json", cred_json_path=GMAIL_CREDENTIALS_PATH
     )
-    drive_creds = connect(
+    drive_creds = connect_google(
         token_json_path="drive_token.json", cred_json_path=DRIVE_CREDENTIALS_PATH
     )
 
     try:
+        # connect postgres
+        db = postgres_utils.DataBase("postgres")
+
+        # connect google apis
         gmail_service = EmailService(build("gmail", "v1", credentials=gmail_creds))
         drive_service = DriveService(
             drive_service=build("drive", "v3", credentials=drive_creds),
@@ -330,6 +360,8 @@ Recent Company Innovations (note that this may not work for small startups):
     except HttpError as error:
         print(type(error))
         print(f"An error occurred: {error}")
+    finally:
+        db.close_db()
 
 
 if __name__ == "__main__":
