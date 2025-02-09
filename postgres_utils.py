@@ -1,6 +1,7 @@
 import psycopg2
 from typing import Iterator, Union, List
-
+import pandas as pd
+from tqdm import tqdm
 
 class DataBase:
     def __init__(self, db_name):
@@ -76,6 +77,26 @@ WHERE c.name IN {contacts};"""
         self.cur.execute("SELECT * FROM contacts")
         return iter(self.cur)
 
-    def delete_table(self, table_name: str):
-        self.cur.execute(f"DELETE FROM {table_name}")
+    def reset_database(self):
+        command = "TRUNCATE TABLE contacts, contact_emails, emails RESTART IDENTITY CASCADE"
+        self.cur.execute(command)
         self.conn.commit()
+        
+    def add_contact(self, name: str, company: str, contact_info: str, last_contacted: str, follow_up_date: str, warm: bool, reminder: bool, notes: str):
+        self.cur.execute(
+            f"INSERT INTO contacts (name, company, contact_info, last_contacted, follow_up_date, warm, notes) VALUES ('{name}', '{company}', '{contact_info}', '{last_contacted}', '{follow_up_date}', {warm}, '{notes}')"
+        )
+        self.conn.commit()
+        
+    def load_contacts_from_csv(self, csv_file: str):
+        df = pd.read_csv(csv_file, header=0)
+        for _, row in tqdm(df.iterrows(), desc="Loading contacts", total=len(df)):
+            name = str(row["name"])
+            company = str(row["company"])
+            contact_info = str(row["contact_info"])
+            last_contacted = str(row["last_contacted"])
+            follow_up_date = str(row["follow_up_date"])
+            warm = bool(row["warm"])
+            reminder = bool(row["reminder"])
+            notes = str(row["notes"])
+            self.add_contact(name, company, contact_info, last_contacted, follow_up_date, warm, reminder, notes)
