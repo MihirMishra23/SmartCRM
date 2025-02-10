@@ -242,8 +242,7 @@ def main():
                         to="mrm367@cornell.edu",
                         subject=f"SmartCRM Reminder: Follow up with {contact['name']}",
                         body=f"""The last time you reached out to {contact['name']} was on \
-{last_contact_date} ({days_since} days ago). Please refer to \
-https://docs.google.com/spreadsheets/d/{sheet_id} for additional information.
+{last_contact_date} ({days_since} days ago).
 
 Potential Response:
 {potential_response}
