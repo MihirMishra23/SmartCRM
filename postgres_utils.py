@@ -3,6 +3,7 @@ from typing import Iterator, Union, List
 import pandas as pd
 from tqdm import tqdm
 
+
 class DataBase:
     def __init__(self, db_name):
         # conn = psycopg2.connect("dbname=" + p_db_name + " user=" + p_user + " password=" + p_pass)
@@ -26,38 +27,59 @@ class DataBase:
         self, contacts: List[str], date: str, content: str, summary: str = ""
     ) -> None:
         """
-        Add email to the database
+        Add email to the database, avoiding duplicates while maintaining contact relationships
         Params: contacts: list of contacts (names only),
                 date: date of email (date only),
                 content: content of email,
                 summary: summary of email
         """
-        # this is to avoid issue with sql queries where text has a single quote
+        # Escape single quotes
         content = content.replace("'", "''")
         summary = summary.replace("'", "''")
 
-        # put email into emails database
-        self.cur.execute(
-            f"INSERT INTO emails (date, summary, content) VALUES ('{date}', '{summary}', '{content}') RETURNING id"
-        )
-        email_id = self.cur.fetchone()[0]  # type: ignore
+        # First check if this email content already exists
+        self.cur.execute(f"SELECT id FROM emails WHERE content = '{content}'")
+        existing_email = self.cur.fetchone()
 
-        # put contacts and emails into contact_emails database
+        if existing_email:
+            email_id = existing_email[0]
+        else:
+            # Add new email if it doesn't exist
+            self.cur.execute(
+                f"INSERT INTO emails (date, summary, content) VALUES ('{date}', '{summary}', '{content}') RETURNING id"
+            )
+            item = self.cur.fetchone()
+            if item is None:
+                raise ValueError("Failed to insert email")
+            email_id = item[0]
+
+        # Get contact IDs for all involved contacts
         contacts_string = ", ".join([f"'{contact}'" for contact in contacts])
         self.cur.execute(
             f"SELECT id FROM contacts WHERE name IN ({contacts_string}) OR contact_info IN ({contacts_string});"
         )
         contact_ids = [contact[0] for contact in self.cur.fetchall()]
-        query_list = ", ".join(
-            [f"{contact_id, email_id}" for contact_id in contact_ids]
-        )
-        print("query_list:", query_list)
-        self.cur.execute(
-            f"INSERT INTO contact_emails (contact_id, email_id) VALUES {query_list};"
-        )
-        self.cur.execute(
-            f"UPDATE contacts SET last_contacted = '{date}' WHERE name IN ({contacts_string}) AND last_contacted < '{date}';"
-        )
+
+        # Add contact-email relationships if they don't exist
+        for contact_id in contact_ids:
+            self.cur.execute(
+                f"""
+                INSERT INTO contact_emails (contact_id, email_id)
+                VALUES ({contact_id}, {email_id})
+                ON CONFLICT (contact_id, email_id) DO NOTHING
+                """
+            )
+
+            # Update last_contacted date if this is more recent
+            self.cur.execute(
+                f"""
+                UPDATE contacts 
+                SET last_contacted = '{date}' 
+                WHERE id = {contact_id}
+                AND (last_contacted IS NULL OR last_contacted < '{date}')
+                """
+            )
+
         self.conn.commit()
 
     def fetch_emails(self, contacts: List = []) -> Iterator[tuple]:
@@ -69,7 +91,7 @@ class DataBase:
 FROM emails e
 JOIN contact_emails ce ON e.id = ce.email_id
 JOIN contacts c ON ce.contact_id = c.id
-WHERE c.name IN {contacts};"""
+WHERE c.name IN {tuple(contacts)};"""
         )
         return iter(self.cur)
 
@@ -77,17 +99,49 @@ WHERE c.name IN {contacts};"""
         self.cur.execute("SELECT * FROM contacts")
         return iter(self.cur)
 
+    def fetch_contacts_as_dicts(self):
+        """
+        Fetch contacts from the database and return them as a list of dictionaries.
+        Each dictionary represents a contact with column names as keys.
+        """
+        # Example SQL query to fetch contacts
+        query = "SELECT * FROM contacts"
+        self.cur.execute(query)
+        desc = self.cur.description
+        assert desc is not None
+        columns = [desc[0] for desc in desc]
+        contacts = [dict(zip(columns, row)) for row in self.cur.fetchall()]
+        return contacts
+
     def reset_database(self):
-        command = "TRUNCATE TABLE contacts, contact_emails, emails RESTART IDENTITY CASCADE"
+        command = (
+            "TRUNCATE TABLE contacts, contact_emails, emails RESTART IDENTITY CASCADE"
+        )
         self.cur.execute(command)
         self.conn.commit()
-        
-    def add_contact(self, name: str, company: str, contact_info: str, last_contacted: str, follow_up_date: str, warm: bool, reminder: bool, notes: str):
+
+    def add_contact(
+        self,
+        name: str,
+        company: str,
+        contact_info: str,
+        last_contacted: str,
+        follow_up_date: str,
+        warm: bool,
+        reminder: bool,
+        notes: str,
+    ):
         self.cur.execute(
-            f"INSERT INTO contacts (name, company, contact_info, last_contacted, follow_up_date, warm, notes) VALUES ('{name}', '{company}', '{contact_info}', '{last_contacted}', '{follow_up_date}', {warm}, '{notes}')"
+            f"""
+            INSERT INTO contacts 
+            (name, company, contact_info, last_contacted, follow_up_date, warm, notes) 
+            VALUES 
+            ('{name}', '{company}', '{contact_info}', '{last_contacted}', 
+             '{follow_up_date}', {warm}, '{notes}')
+            """
         )
         self.conn.commit()
-        
+
     def load_contacts_from_csv(self, csv_file: str):
         df = pd.read_csv(csv_file, header=0)
         for _, row in tqdm(df.iterrows(), desc="Loading contacts", total=len(df)):
@@ -99,4 +153,13 @@ WHERE c.name IN {contacts};"""
             warm = bool(row["warm"])
             reminder = bool(row["reminder"])
             notes = str(row["notes"])
-            self.add_contact(name, company, contact_info, last_contacted, follow_up_date, warm, reminder, notes)
+            self.add_contact(
+                name,
+                company,
+                contact_info,
+                last_contacted,
+                follow_up_date,
+                warm,
+                reminder,
+                notes,
+            )
