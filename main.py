@@ -15,6 +15,7 @@ from datetime import datetime
 import time
 import googlesearch
 import psycopg2
+from tqdm import tqdm
 
 from utils import *
 from email_utils import *
@@ -69,7 +70,26 @@ def search_emails_and_update_db(
     """
     Stores emails in postgres database based on contact queries
     """
-    results = gmail_service.search_threads(query=query)
+    # Get all email addresses for the contact
+    db.cur.execute(
+        """
+        SELECT value 
+        FROM contact_methods 
+        WHERE method_type = 'email'
+        """
+    )
+    email_addresses = [row[0] for row in db.cur.fetchall()]
+
+    # Build query for all email addresses
+    query_parts = []
+    for email in email_addresses:
+        query_parts.append(f"to:{email} OR from:{email}")
+
+    full_query = " OR ".join(query_parts)
+    if query:
+        full_query = f"({full_query}) AND {query}"
+
+    results = gmail_service.search_threads(query=full_query)
 
     # for each email to/from a contact, read it and store in database
     for msg in results:
@@ -125,6 +145,59 @@ def populate_emails(
             db.add_email(email_contacts, email_date, email.Contents)
 
 
+def update_contact_emails(
+    gmail_service: EmailService,
+    db: postgres_utils.DataBase,
+    contact: dict,
+) -> None:
+    """
+    Updates emails in postgres database for a specific contact
+    """
+    # Get contact's email addresses
+    email_addresses = [
+        method["value"]
+        for method in contact["contact_methods"]
+        if method["type"] == "email"
+    ]
+
+    if not email_addresses:
+        return
+
+    # Build query for all email addresses
+    query_parts = [f"to:{email} OR from:{email}" for email in email_addresses]
+    query = " OR ".join(query_parts)
+
+    results = gmail_service.search_threads(query=query)
+
+    # Process each email
+    for msg in results:
+        message = gmail_service.read_message(msg)
+
+        # Parse date to ISO format for postgres, handling UTC notation
+        try:
+            date_str = message.Date.replace(" (UTC)", "")
+            parsed_date = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+        except ValueError:
+            # If timezone parsing fails, assume UTC
+            date_str = message.Date.replace(" (UTC)", " +0000")
+            parsed_date = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+
+        formatted_date = parsed_date.date().isoformat()
+
+        try:
+            summary = summarize_email(NAME, str(message))
+        except openai.BadRequestError:
+            summary = "Summarization failed"
+
+        # Add email to database for this contact
+        db.update_emails_for_contact(
+            contact_id=contact["id"],
+            date=formatted_date,
+            content=message.__str__(hide_date=True),
+            summary=summary,
+        )
+
+
 def main():
     gmail_creds = connect_google(
         token_json_path="gmail_token.json", cred_json_path=GMAIL_CREDENTIALS_PATH
@@ -145,16 +218,14 @@ def main():
             initialized = file.read() != ""
 
         if not initialized:
-            print("Initializing database")
-            # Initial population of emails
-            for contact in contacts:
-                address = contact["contact_info"]
-                search_emails_and_update_db(
+            # Initial population of emails for each contact
+            for contact in tqdm(contacts, desc="Updating emails"):
+                update_contact_emails(
                     gmail_service=gmail_service,
                     db=db,
-                    query=f"to:{address} OR from:{address}",
+                    contact=contact,
                 )
-                time.sleep(5)
+                # time.sleep(3)  # Rate limiting
 
             db.close()
             return
@@ -165,11 +236,12 @@ def main():
             last_run_date = log.split("\n")[-1] if log else None
 
             if last_run_date:
-                search_emails_and_update_db(
-                    gmail_service=gmail_service,
-                    db=db,
-                    query=f"after: {get_previous_day(last_run_date)} AND -to:('')",
-                )
+                for contact in contacts:
+                    update_contact_emails(
+                        gmail_service=gmail_service,
+                        db=db,
+                        contact=contact,
+                    )
 
             today = datetime.now().strftime("%Y/%m/%d")
             if not last_run_date or today != last_run_date:
