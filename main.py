@@ -24,11 +24,7 @@ import postgres_utils
 from command import *
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = [
-    "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -65,109 +61,47 @@ def connect_google(
     return creds
 
 
-def search_emails_and_update_sheet(
+def search_emails_and_update_db(
     gmail_service: EmailService,
-    drive_service: DriveService,
-    sheet_id: str,
-    contact_df: pd.DataFrame,
+    db: postgres_utils.DataBase,
     query: str,
 ):
     """
-    Populates the Emails tab based on all listed contacts in the Contacts tab.
-    Updates the last contacted on column in the Contacts tab.
+    Stores emails in postgres database based on contact queries
     """
     results = gmail_service.search_threads(query=query)
 
-    # for each email to/from a contact, read it (output plain/text to sheet)
+    # for each email to/from a contact, read it and store in database
     for msg in results:
-        # read message
         message = gmail_service.read_message(msg)
         message.To = extract_substring(message.To)
         message.From = extract_substring(message.From)
         if message.Cc:
             message.Cc = extract_substring(message.Cc)
 
-        # collect contact ids
-        tos = message.To.split(", ")
-        ids: list = []
-        for To in tos:
-            ids.extend(
-                contact_df.index[contact_df["contact info"].str.contains(To)].to_list()
-            )
-        ids.extend(
-            contact_df.index[
-                contact_df["contact info"].str.contains(message.From)
-            ].to_list()
-        )
+        # Get all contacts involved in this email
+        contacts = []
+        contacts.extend(message.To.split(", "))
+        contacts.append(message.From)
         if message.Cc:
-            ccs = message.Cc.split(", ")
-            for cc in ccs:
-                ids.extend(
-                    contact_df.index[
-                        contact_df["contact info"].str.contains(cc)
-                    ].to_list()
-                )
+            contacts.extend(message.Cc.split(", "))
 
-        # write to Emails tab if the email isn't already in it
-        if len(ids) > 0:
-            email_df = drive_service.read_sheet(sheet_id, range="Emails!A:M")
+        # Parse date to ISO format for postgres
+        parsed_date = datetime.strptime(message.Date, "%a, %d %b %Y %H:%M:%S %z")
+        formatted_date = parsed_date.date().isoformat()
 
-            if message.__str__(hide_date=True) not in email_df["content"].to_list():
-                parsed_date = datetime.strptime(
-                    message.Date, "%a, %d %b %Y %H:%M:%S %z"
-                )
-                formatted_date = parsed_date.strftime("%m/%d/%Y %I:%M %p")
+        try:
+            summary = summarize_email(NAME, str(message))
+        except openai.BadRequestError:
+            summary = "Summarization failed"
 
-                try:
-                    summary = summarize_email(NAME, message)  # type: ignore
-                except openai.BadRequestError:
-                    summary = "Summarization failed"
-
-                row_data = {col: "" for col in email_df.columns}
-                row_data.update(
-                    {
-                        "ID": ", ".join(ids),
-                        "date": formatted_date,
-                        "contact name(s)": ", ".join(
-                            contact_df.loc[ids, "name"].to_list()
-                        ),
-                        "summary": summary,
-                        "content": message.__str__(hide_date=True),
-                    }
-                )
-                email_df = email_df.append(row_data, ignore_index=True)
-                time.sleep(1)
-                drive_service.add_row(
-                    sheet_id=sheet_id,
-                    row_data=email_df.iloc[-1].to_list(),
-                    tab_name="Emails",
-                )
-
-                # update last contacted on date in Contacts tab
-                for id in ids:
-                    d = None
-                    if (
-                        contact_df.at[id, "last contacted on"] != ""
-                        and contact_df.at[id, "last contacted on"] is not None
-                    ):
-                        try:
-                            d = datetime.strptime(
-                                contact_df.at[id, "last contacted on"], "%m/%d/%y"
-                            ).date()
-                        except ValueError:
-                            d = datetime.strptime(
-                                contact_df.at[id, "last contacted on"], "%m/%d/%Y"
-                            ).date()
-                    if d is None or d < parsed_date.date():
-                        drive_service.update_cell(
-                            cell_value=parsed_date.strftime("%m/%d/%y"),
-                            cell_loc=f"E{int(id)+1}",
-                            sheet_id=sheet_id,
-                            tab_name="Contacts",
-                        )
-                        contact_df.loc[id, "last contacted on"] = parsed_date.strftime(
-                            "%m/%d/%y"
-                        )
+        # Add email to database
+        db.add_email(
+            contacts=contacts,
+            date=formatted_date,
+            content=message.__str__(hide_date=True),
+            summary=summary,
+        )
 
 
 def populate_emails(
@@ -177,11 +111,8 @@ def populate_emails(
     """
     Populates the Emails tab based on all listed contacts in the Contacts tab.
     """
-    for contact in db.fetch_contacts():
-        name = contact[0]
-        company = contact[1]
-        contact_info = contact[2]
-        last_contacted = contact[3]
+    for contact in db.fetch_contacts_as_dicts():
+        contact_info = contact["contact_info"]
         query = f"to:{contact_info} OR from:{contact_info}"
         results = gmail_service.search_threads(query=query)
         for msg in results:
@@ -198,118 +129,83 @@ def main():
     gmail_creds = connect_google(
         token_json_path="gmail_token.json", cred_json_path=GMAIL_CREDENTIALS_PATH
     )
-    drive_creds = connect_google(
-        token_json_path="drive_token.json", cred_json_path=DRIVE_CREDENTIALS_PATH
-    )
 
     try:
-        # connect postgres
+        # Connect to postgres
         db = postgres_utils.DataBase("postgres")
 
-        # connect google apis
+        # Connect to Gmail API
         gmail_service = EmailService(build("gmail", "v1", credentials=gmail_creds))
-        drive_service = DriveService(
-            drive_service=build("drive", "v3", credentials=drive_creds),
-            sheets_service=build("sheets", "v4", credentials=drive_creds),
-        )
 
-        sheet_id = drive_service.search_drive(name=SHEET_NAME, file_type="sheet")
+        # Get all contacts from database
+        contacts = db.fetch_contacts_as_dicts()
 
-        contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
-        contact_df = contact_df.set_index("ID")
-
-        new_contacts = None
-        if os.path.exists("contacts.csv"):
-            og_contact_df = pd.read_csv("contacts.csv")
-            og_contact_df = og_contact_df.set_index("ID")  # type: ignore
-            new_contacts = contact_df.loc[
-                [row for row in contact_df.index if row not in og_contact_df.index]
-            ]
-
+        # Check if this is first run
         with open("log.txt", "r+") as file:
             initialized = file.read() != ""
 
         if not initialized:
-            for _, row in contact_df.iterrows():
-                if row["active"].strip().lower() in {"n", "no"}:
-                    continue
-                contact_address = row["contact info"]
-                address = contact_address.split("\n")[0]
-                search_emails_and_update_sheet(
+            print("Initializing database")
+            # Initial population of emails
+            for contact in contacts:
+                address = contact["contact_info"]
+                search_emails_and_update_db(
                     gmail_service=gmail_service,
-                    drive_service=drive_service,
-                    sheet_id=sheet_id,
-                    contact_df=contact_df,
+                    db=db,
                     query=f"to:{address} OR from:{address}",
                 )
-                contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
-
-                contact_df = contact_df.set_index("ID")
                 time.sleep(5)
-        elif new_contacts is not None:
-            for _, row in new_contacts.iterrows():
-                if row["active"].strip().lower() in {"n", "no"}:
-                    continue
-                address = row["contact info"].split("\n")[0]
-                search_emails_and_update_sheet(
-                    gmail_service=gmail_service,
-                    drive_service=drive_service,
-                    sheet_id=sheet_id,
-                    contact_df=contact_df,
-                    query=f"to:{address} OR from:{address}",
-                )
-                contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
 
-                contact_df = contact_df.set_index("ID")
-                time.sleep(5)
+            db.close()
+            return
+
+        # Handle new emails since last run
         with open("log.txt", "r+") as file:
             log = file.read()
-            last_run_date = log.split("\n")[-1]
-            if initialized:
-                search_emails_and_update_sheet(
+            last_run_date = log.split("\n")[-1] if log else None
+
+            if last_run_date:
+                search_emails_and_update_db(
                     gmail_service=gmail_service,
-                    drive_service=drive_service,
-                    sheet_id=sheet_id,
-                    contact_df=contact_df,
+                    db=db,
                     query=f"after: {get_previous_day(last_run_date)} AND -to:('')",
                 )
-            # gmail search query for emails sent after last run date that don't have an empty to field
-            query = f"after: {last_run_date} AND in:inbox AND to:*"
+
             today = datetime.now().strftime("%Y/%m/%d")
-            if today != last_run_date:
+            if not last_run_date or today != last_run_date:
                 if initialized:
                     file.write("\n")
-                file.write(datetime.now().strftime("%Y/%m/%d"))
-        contact_df.to_csv("contacts.csv")
+                file.write(today)
 
-        # _____________________________________________________________________
-        # Reminders. Sends one reminder email if the contact has not been reached
-        # out to after a period of time specified by the sheet
-        contact_df = drive_service.read_sheet(sheet_id, range="Contacts!A:M")
-        contact_df = contact_df.set_index("ID")
-        for _, row in contact_df.iterrows():
-            if row["reminder"] == "" or row["reminder"] is None:
+        # Handle reminders
+        for contact in contacts:
+            if not contact.get("reminder"):
                 continue
-            last = row["days since last contact"]
-            followup = row["days until next follow up"]
-            if not last:
-                continue
-            if followup.strip() == "" or followup is None:
-                followup = 90
-            if int(last) >= followup:
-                date = datetime.strptime(row["last contacted on"], "%m/%d/%Y")
-                date = datetime.strftime(date, "%Y/%m/%d")
 
-                msg = [
-                    m
-                    for m in gmail_service.search_threads(
-                        f"after: {date} SmartCRM Reminder: Follow up with {row['name']}",
-                    )
-                ]
-                if len(msg) == 0:
+            last_contact_date = contact.get("last_contacted")
+            if not last_contact_date:
+                continue
+
+            followup_days = contact.get("follow_up_date", 90)
+
+            # Calculate days since last contact
+            last_date = datetime.strptime(last_contact_date, "%Y-%m-%d").date()
+            days_since = (datetime.now().date() - last_date).days
+
+            if days_since >= followup_days:
+                # Check if reminder already sent
+                reminder_subject = (
+                    f"SmartCRM Reminder: Follow up with {contact['name']}"
+                )
+                existing_reminders = gmail_service.search_threads(
+                    f"after: {last_contact_date} {reminder_subject}"
+                )
+
+                if not list(existing_reminders):
+                    # Generate reminder content
                     string = ""
                     url = googlesearch.search(
-                        f"techcrunch new products at {row['company']}",
+                        f"techcrunch new products at {contact['company']}",
                         num_results=3,
                         lang="en",
                     )
@@ -317,7 +213,7 @@ def main():
                         link = next(url)
                         string += summarize_webpage(link)  # type: ignore
                     url = googlesearch.search(
-                        f"the verge new products at {row['company']}",
+                        f"the verge new products at {contact['company']}",
                         num_results=3,
                         lang="en",
                     )
@@ -327,7 +223,7 @@ def main():
                     company_innovations = summarize_company_innovations(string)
 
                     threads = gmail_service.search_threads(
-                        f"to: {row['contact info']} OR from: {row['contact info']}",
+                        f"to: {contact['contact_info']} OR from: {contact['contact_info']}",
                         newest_first=True,
                     )
                     msgs = []
@@ -344,9 +240,9 @@ def main():
 
                     gmail_service.send_email(
                         to="mrm367@cornell.edu",
-                        subject=f"SmartCRM Reminder: Follow up with {row['name']}",
-                        body=f"""The last time you reached out to {row['name']} was on \
-{row['last contacted on']} ({row['days since last contact']} days ago). Please refer to \
+                        subject=f"SmartCRM Reminder: Follow up with {contact['name']}",
+                        body=f"""The last time you reached out to {contact['name']} was on \
+{last_contact_date} ({days_since} days ago). Please refer to \
 https://docs.google.com/spreadsheets/d/{sheet_id} for additional information.
 
 Potential Response:
@@ -358,10 +254,9 @@ Recent Company Innovations (note that this may not work for small startups):
                     )
 
     except HttpError as error:
-        print(type(error))
         print(f"An error occurred: {error}")
     finally:
-        db.close_db()
+        db.close()
 
 
 if __name__ == "__main__":
