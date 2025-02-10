@@ -127,17 +127,17 @@ WHERE c.name IN {tuple(contacts)};"""
         contact_info: str,
         last_contacted: str,
         follow_up_date: str,
-        warm: bool,
-        reminder: bool,
-        notes: str,
+        warm: bool = False,
+        reminder: bool = True,
+        notes: str = "",
     ):
         self.cur.execute(
             f"""
             INSERT INTO contacts 
-            (name, company, contact_info, last_contacted, follow_up_date, warm, notes) 
+            (name, company, contact_info, last_contacted, follow_up_date, warm, notes, reminder) 
             VALUES 
             ('{name}', '{company}', '{contact_info}', '{last_contacted}', 
-             '{follow_up_date}', {warm}, '{notes}')
+             '{follow_up_date}', {warm}, '{notes}', {reminder})
             """
         )
         self.conn.commit()
