@@ -91,12 +91,13 @@ class DataBase:
         if contacts == []:
             self.cur.execute("SELECT * FROM emails")
             return iter(self.cur)
+        contacts_string = ", ".join([f"'{contact}'" for contact in contacts])
         self.cur.execute(
             f"""SELECT e.*
 FROM emails e
 JOIN contact_emails ce ON e.id = ce.email_id
 JOIN contacts c ON ce.contact_id = c.id
-WHERE c.name IN {tuple(contacts)};"""
+WHERE c.name IN ({contacts_string});"""
         )
         return iter(self.cur)
 
@@ -289,3 +290,60 @@ WHERE c.name IN {tuple(contacts)};"""
         )
 
         self.conn.commit()
+
+    def fetch_emails_with_contacts(
+        self, contacts: List[str] = []
+    ) -> Iterator[tuple[tuple, List[tuple]]]:
+        """
+        Fetch emails with their associated contacts from the database
+
+        Args:
+            contacts: Optional list of contact names to filter by
+
+        Returns:
+            Iterator of tuples containing (email_record, list_of_contacts)
+            where email_record is (id, date, summary, content)
+            and list_of_contacts is a list of (name, email) tuples
+        """
+        if contacts:
+            contacts_string = ", ".join([f"'{contact}'" for contact in contacts])
+            query = f"""
+                WITH email_ids AS (
+                    SELECT DISTINCT e.id
+                    FROM emails e
+                    JOIN contact_emails ce ON e.id = ce.email_id
+                    JOIN contacts c ON ce.contact_id = c.id
+                    WHERE c.name IN ({contacts_string})
+                )
+                SELECT 
+                    e.id, e.date, e.summary, e.content,
+                    array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
+                FROM email_ids ei
+                JOIN emails e ON e.id = ei.id
+                JOIN contact_emails ce ON e.id = ce.email_id
+                JOIN contacts c ON ce.contact_id = c.id
+                JOIN contact_methods cm ON c.id = cm.contact_id
+                WHERE cm.method_type = 'email'
+                GROUP BY e.id, e.date, e.summary, e.content
+                ORDER BY e.date DESC;
+            """
+        else:
+            query = """
+                SELECT 
+                    e.id, e.date, e.summary, e.content,
+                    array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
+                FROM emails e
+                JOIN contact_emails ce ON e.id = ce.email_id
+                JOIN contacts c ON ce.contact_id = c.id
+                JOIN contact_methods cm ON c.id = cm.contact_id
+                WHERE cm.method_type = 'email'
+                GROUP BY e.id, e.date, e.summary, e.content
+                ORDER BY e.date DESC;
+            """
+
+        self.cur.execute(query)
+        for row in self.cur:
+            email_record = row[:-1]  # Everything except contacts array
+            contacts_data = row[-1]  # Contacts array
+            contacts_list = [(c["name"], c["email"]) for c in contacts_data]
+            yield (email_record, contacts_list)
