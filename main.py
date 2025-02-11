@@ -18,7 +18,12 @@ import psycopg2
 from tqdm import tqdm
 
 from utils import *
-from email_utils import *
+from email_utils import (
+    EmailService,
+    EmailFactory,
+    display_contact_emails,
+    extract_substring,
+)
 from drive_utils import *
 from gpt_utils import *
 import postgres_utils
@@ -145,7 +150,7 @@ def populate_emails(
             db.add_email(email_contacts, email_date, email.Contents)
 
 
-def update_contact_emails(
+def process_emails(
     gmail_service: EmailService,
     db: postgres_utils.DataBase,
     contact: dict,
@@ -189,11 +194,12 @@ def update_contact_emails(
         except openai.BadRequestError:
             summary = "Summarization failed"
 
-        # Add email to database for this contact
+        # Convert to database format and store
+        contacts, date, content, _ = EmailFactory.to_db_format(message)
         db.update_emails_for_contact(
             contact_id=contact["id"],
             date=formatted_date,
-            content=message.__str__(hide_date=True),
+            content=content,
             summary=summary,
         )
 
@@ -219,13 +225,15 @@ def main():
 
         if not initialized:
             # Initial population of emails for each contact
-            for contact in tqdm(contacts, desc="Updating emails"):
-                update_contact_emails(
+            for contact in tqdm(contacts, desc="Processing emails"):
+                process_emails(
                     gmail_service=gmail_service,
                     db=db,
                     contact=contact,
                 )
-                # time.sleep(3)  # Rate limiting
+
+            # Display all processed emails using email_utils function
+            # display_contact_emails(db)
 
             db.close()
             return
@@ -237,11 +245,16 @@ def main():
 
             if last_run_date:
                 for contact in contacts:
-                    update_contact_emails(
+                    process_emails(
                         gmail_service=gmail_service,
                         db=db,
                         contact=contact,
                     )
+
+                # Display newly processed emails
+                today = datetime.now().date().isoformat()
+                print(f"\nNew emails since {last_run_date}:")
+                # display_contact_emails(db)
 
             today = datetime.now().strftime("%Y/%m/%d")
             if not last_run_date or today != last_run_date:
@@ -249,71 +262,71 @@ def main():
                     file.write("\n")
                 file.write(today)
 
-        # Handle reminders
-        for contact in contacts:
-            if not contact.get("reminder"):
-                continue
+            # Handle reminders
+            for contact in contacts:
+                if not contact.get("reminder"):
+                    continue
 
-            last_contact_date = contact.get("last_contacted")
-            if not last_contact_date:
-                continue
+                last_contact_date = contact.get("last_contacted")
+                if not last_contact_date:
+                    continue
 
-            followup_days = contact.get("follow_up_date", 90)
+                followup_days = contact.get("follow_up_date", 90)
 
-            # Calculate days since last contact
-            last_date = datetime.strptime(last_contact_date, "%Y-%m-%d").date()
-            days_since = (datetime.now().date() - last_date).days
+                # Calculate days since last contact
+                last_date = datetime.strptime(last_contact_date, "%Y-%m-%d").date()
+                days_since = (datetime.now().date() - last_date).days
 
-            if days_since >= followup_days:
-                # Check if reminder already sent
-                reminder_subject = (
-                    f"SmartCRM Reminder: Follow up with {contact['name']}"
-                )
-                existing_reminders = gmail_service.search_threads(
-                    f"after: {last_contact_date} {reminder_subject}"
-                )
-
-                if not list(existing_reminders):
-                    # Generate reminder content
-                    string = ""
-                    url = googlesearch.search(
-                        f"techcrunch new products at {contact['company']}",
-                        num_results=3,
-                        lang="en",
+                if days_since >= followup_days:
+                    # Check if reminder already sent
+                    reminder_subject = (
+                        f"SmartCRM Reminder: Follow up with {contact['name']}"
                     )
-                    for _ in range(3):
-                        link = next(url)
-                        string += summarize_webpage(link)  # type: ignore
-                    url = googlesearch.search(
-                        f"the verge new products at {contact['company']}",
-                        num_results=3,
-                        lang="en",
-                    )
-                    for _ in range(3):
-                        link = next(url)
-                        string += summarize_webpage(link)  # type: ignore
-                    company_innovations = summarize_company_innovations(string)
-
-                    threads = gmail_service.search_threads(
-                        f"to: {contact['contact_info']} OR from: {contact['contact_info']}",
-                        newest_first=True,
-                    )
-                    msgs = []
-                    num_msgs = 0
-                    for msg in threads:
-                        msgs.append(gmail_service.read_message(msg).__str__())
-                        num_msgs += 1
-                        if num_msgs >= 3:
-                            break
-
-                    potential_response = generate_response_email_from_messages(
-                        "\n".join(msgs), NAME
+                    existing_reminders = gmail_service.search_threads(
+                        f"after: {last_contact_date} {reminder_subject}"
                     )
 
-                    gmail_service.send_email(
-                        to="mrm367@cornell.edu",
-                        subject=f"SmartCRM Reminder: Follow up with {contact['name']}",
-                        body=f"""The last time you reached out to {contact['name']} was on \
+                    if not list(existing_reminders):
+                        # Generate reminder content
+                        string = ""
+                        url = googlesearch.search(
+                            f"techcrunch new products at {contact['company']}",
+                            num_results=3,
+                            lang="en",
+                        )
+                        for _ in range(3):
+                            link = next(url)
+                            string += summarize_webpage(link)  # type: ignore
+                        url = googlesearch.search(
+                            f"the verge new products at {contact['company']}",
+                            num_results=3,
+                            lang="en",
+                        )
+                        for _ in range(3):
+                            link = next(url)
+                            string += summarize_webpage(link)  # type: ignore
+                        company_innovations = summarize_company_innovations(string)
+
+                        threads = gmail_service.search_threads(
+                            f"to: {contact['contact_info']} OR from: {contact['contact_info']}",
+                            newest_first=True,
+                        )
+                        msgs = []
+                        num_msgs = 0
+                        for msg in threads:
+                            msgs.append(gmail_service.read_message(msg).__str__())
+                            num_msgs += 1
+                            if num_msgs >= 3:
+                                break
+
+                        potential_response = generate_response_email_from_messages(
+                            "\n".join(msgs), NAME
+                        )
+
+                        gmail_service.send_email(
+                            to="mrm367@cornell.edu",
+                            subject=reminder_subject,
+                            body=f"""The last time you reached out to {contact['name']} was on \
 {last_contact_date} ({days_since} days ago).
 
 Potential Response:
@@ -322,7 +335,7 @@ Potential Response:
 Recent Company Innovations (note that this may not work for small startups):
 {company_innovations}
 """,
-                    )
+                        )
 
     except HttpError as error:
         print(f"An error occurred: {error}")
