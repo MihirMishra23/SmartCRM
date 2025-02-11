@@ -235,3 +235,90 @@ class EmailService:
             .send(userId="me", body={"raw": message_b64})
             .execute()
         )
+
+
+class EmailFactory:
+    """Factory class for creating Email objects from different data sources"""
+
+    @staticmethod
+    def from_db_record(email_record: tuple, contacts: List[tuple]) -> Email:
+        """
+        Creates an Email object from a database record and associated contacts
+
+        Args:
+            email_record: Tuple containing (id, date, summary, content) from emails table
+            contacts: List of tuples containing contact information (name, email) for this email
+
+        Returns:
+            Email object populated with the database data
+        """
+        email = Email()
+        _, date, _, content = email_record
+
+        # Process contacts into To/From/Cc fields
+        contact_strings = [f"{contact[0]} <{contact[1]}>" for contact in contacts]
+
+        # For simplicity, use first contact as From and rest as To
+        # This can be enhanced based on actual email direction data if available
+        email.From = contact_strings[0]
+        email.To = ", ".join(contact_strings[1:])
+        email.Cc = None  # Set if CC information is available in your database
+        email.Subject = ""  # Set if subject is stored in your database
+        email.Contents = content
+        email.Date = date
+
+        return email
+
+    @staticmethod
+    def to_db_format(email: Email) -> tuple[List[str], str, str, str]:
+        """
+        Converts an Email object to the format expected by DataBase.add_email()
+
+        Args:
+            email: Email object to convert
+
+        Returns:
+            Tuple of (contacts, date, content, summary) ready for database insertion
+        """
+        contacts = email.get_contact_names()
+        return (contacts, email.Date, email.Contents, "")  # Add summary if needed
+
+
+def display_contact_emails(db, contact_name: str = "") -> None:
+    """
+    Display emails for a specific contact or all contacts using EmailFactory
+
+    Args:
+        db: Database instance that implements fetch_emails_with_contacts
+        contact_name: Optional name of contact to filter emails by
+    """
+    contacts = [contact_name] if contact_name else []
+
+    print(f"\nDisplaying emails for {contact_name or 'all contacts'}:")
+    print("-" * 50)
+
+    try:
+        for email_record, contacts in db.fetch_emails_with_contacts(contacts):
+            try:
+                email = EmailFactory.from_db_record(email_record, contacts)
+                # Filter out any lines that look like they contain base64 or technical data
+                content_lines = email.Contents.split("\n")
+                filtered_lines = [
+                    line
+                    for line in content_lines
+                    if not any(
+                        x in line.lower() for x in ["base64", "token", "boundary="]
+                    )
+                    and not line.strip().startswith("--")
+                ]
+                email.Contents = "\n".join(filtered_lines).strip()
+
+                if email.Contents:  # Only print if there's actual content
+                    print(email)
+                    print("-" * 50)
+            except Exception as e:
+                print(f"Error displaying email: {str(e)}")
+                continue
+    except Exception as e:
+        print(f"Error fetching emails: {str(e)}")
+        return None
