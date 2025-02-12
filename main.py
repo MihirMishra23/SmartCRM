@@ -24,7 +24,6 @@ from email_utils import (
     display_contact_emails,
     extract_substring,
 )
-from drive_utils import *
 from gpt_utils import *
 import postgres_utils
 from command import *
