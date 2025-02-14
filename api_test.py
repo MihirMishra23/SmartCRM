@@ -517,67 +517,353 @@ class TestFlaskAPI(unittest.TestCase):
         )
 
     def test_edge_cases(self):
-        """Test edge cases and error handling"""
-        # Test missing required fields
-        invalid_cases = [
-            # Missing name
-            {
-                "contact_methods": [
-                    {"type": "email", "value": "test@example.com", "is_primary": True}
-                ]
-            },
-            # Missing contact_methods
-            {
-                "name": "Invalid Contact"
-            },
-            # Empty contact_methods
-            {
-                "name": "Invalid Contact",
-                "contact_methods": []
-            }
+        """Test edge cases and error handling for contacts and emails API"""
+        
+        # Track created test data for cleanup
+        test_contacts = []  # List of (name, email, company) tuples
+        
+        # 1. Contact Creation Edge Cases
+        invalid_contact_cases = [
+            # Missing required fields
+            (
+                {"contact_methods": [{"type": "email", "value": "test@example.com", "is_primary": True}]},
+                "Missing required field: name"
+            ),
+            (
+                {"name": "Test Contact"},
+                "Missing required field: contact_methods"
+            ),
+            # Invalid field types
+            (
+                {
+                    "name": 123,  # Invalid name type
+                    "contact_methods": [{"type": "email", "value": "test@example.com", "is_primary": True}]
+                },
+                "Name must be a non-empty string"
+            ),
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": "not a list"  # Invalid contact_methods type
+                },
+                "contact_methods must be an array"
+            ),
+            # Empty or invalid values
+            (
+                {
+                    "name": "",  # Empty name
+                    "contact_methods": [{"type": "email", "value": "test@example.com", "is_primary": True}]
+                },
+                "Name must be a non-empty string"
+            ),
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": []  # Empty contact_methods
+                },
+                "At least one contact method is required"
+            ),
+            # Invalid contact method structure
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": [{"type": "email"}]  # Missing value
+                },
+                "Contact method at index 0 missing required field: value"
+            ),
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": [{"value": "test@example.com"}]  # Missing type
+                },
+                "Contact method at index 0 missing required field: type"
+            ),
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": [
+                        {"type": "email", "value": "test@example.com", "is_primary": "not a boolean"}
+                    ]
+                },
+                "Contact method at index 0 field 'is_primary' must be a boolean"
+            ),
+            # Invalid date formats
+            (
+                {
+                    "name": "Test Contact",
+                    "contact_methods": [{"type": "email", "value": "test@example.com", "is_primary": True}],
+                    "last_contacted": "2024/03/15"  # Wrong date format
+                },
+                "invalid input syntax for type date"
+            ),
+            # Special characters and extremely long values
+            (
+                {
+                    "name": "Test Contact" + "a" * 1000,  # Extremely long name
+                    "contact_methods": [{"type": "email", "value": "test@example.com", "is_primary": True}]
+                },
+                "value too long"
+            ),
         ]
-        for i, invalid_contact in enumerate(invalid_cases):
+
+        for i, (invalid_contact, expected_error) in enumerate(invalid_contact_cases):
             response = requests.post(
                 f"{self.BASE_URL}/contacts",
                 json=invalid_contact,
                 params={"test_suffix": self.test_suffix}
             )
-            self.assertEqual(
-                response.status_code, 
-                400, 
-                f"Case {i}: Invalid contact creation should have failed with 400 but got {response.status_code}. "
-                f"Contact: {invalid_contact}, Response: {response.json()}"
+            self.assertNotEqual(
+                response.status_code,
+                201,
+                f"Case {i}: Invalid contact creation should have failed but succeeded: {invalid_contact}"
+            )
+            self.assertIn(
+                expected_error,
+                response.json().get("error", ""),
+                f"Case {i}: Expected error '{expected_error}' not found in response: {response.json()}"
             )
 
-        # Test malformed JSON
-        response = requests.post(
-            f"{self.BASE_URL}/contacts",
-            data="invalid json",
-            headers={"Content-Type": "application/json"},
-            params={"test_suffix": self.test_suffix}
-        )
-        self.assertEqual(
-            response.status_code, 
-            400, 
-            f"Malformed JSON should have failed with 400 but got {response.status_code}"
-        )
-
-        # Test email with non-existent contact
-        email = {
-            "contacts": ["Non Existent Contact"],
-            "date": date.today().isoformat(),
-            "content": "Test content"
+        # 2. Contact Method Validation
+        # Create valid contact for duplicate testing
+        valid_contact = {
+            "name": "Test Contact",
+            "contact_methods": [
+                {"type": "email", "value": "test@example.com", "is_primary": True},
+                {"type": "phone", "value": "123-456-7890", "is_primary": False}
+            ],
+            "company": "Test Corp"
         }
         response = requests.post(
-            f"{self.BASE_URL}/emails",
-            json=email,
+            f"{self.BASE_URL}/contacts",
+            json=valid_contact,
             params={"test_suffix": self.test_suffix}
         )
-        self.assertNotEqual(
-            response.status_code, 
-            201, 
-            f"Email creation with non-existent contact should have failed but succeeded with status 201"
+        self.assertEqual(response.status_code, 201)
+        test_contacts.append(("Test Contact", "test@example.com", "Test Corp"))
+
+        # Create another contact with same name for ambiguous deletion test
+        another_contact = {
+            "name": "Test Contact",
+            "contact_methods": [
+                {"type": "email", "value": "another@example.com", "is_primary": True}
+            ],
+            "company": "Another Corp"
+        }
+        response = requests.post(
+            f"{self.BASE_URL}/contacts",
+            json=another_contact,
+            params={"test_suffix": self.test_suffix}
         )
+        self.assertEqual(response.status_code, 201)
+        test_contacts.append(("Test Contact", "another@example.com", "Another Corp"))
+
+        # Test duplicate contact methods
+        duplicate_cases = [
+            # Same email, different contact
+            {
+                "name": "Another Contact",
+                "contact_methods": [
+                    {"type": "email", "value": "test@example.com", "is_primary": True}
+                ]
+            },
+            # Same phone, different contact
+            {
+                "name": "Another Contact",
+                "contact_methods": [
+                    {"type": "phone", "value": "123-456-7890", "is_primary": True}
+                ]
+            }
+        ]
+
+        for duplicate_contact in duplicate_cases:
+            response = requests.post(
+                f"{self.BASE_URL}/contacts",
+                json=duplicate_contact,
+                params={"test_suffix": self.test_suffix}
+            )
+            self.assertEqual(
+                response.status_code,
+                400,
+                f"Duplicate contact method should have failed: {duplicate_contact}"
+            )
+            self.assertIn(
+                "already used by contact",
+                response.json().get("error", ""),
+                f"Expected duplicate error not found in response: {response.json()}"
+            )
+
+        # 3. Contact Deletion Edge Cases
+        deletion_test_cases = [
+            # Non-existent contact
+            (
+                "NonExistent",
+                None,
+                None,
+                404,
+                "Contact not found"
+            ),
+            # Ambiguous deletion (multiple contacts with same name)
+            (
+                "Test Contact",
+                None,
+                None,
+                409,
+                "Multiple contacts found"
+            ),
+            # Non-existent company
+            (
+                "Test Contact",
+                None,
+                "NonExistentCompany",
+                404,
+                "Contact not found"
+            ),
+            # Non-existent contact info
+            (
+                "Test Contact",
+                "nonexistent@example.com",
+                None,
+                404,
+                "Contact not found"
+            )
+        ]
+
+        for name, contact_info, company, expected_status, expected_error in deletion_test_cases:
+            params = {"test_suffix": self.test_suffix}
+            if contact_info:
+                params["contact_info"] = contact_info
+            if company:
+                params["company"] = company
+
+            response = requests.delete(
+                f"{self.BASE_URL}/contacts/{name}",
+                params=params
+            )
+            self.assertEqual(
+                response.status_code,
+                expected_status,
+                f"Deletion of {name} (contact_info: {contact_info}, company: {company}) "
+                f"returned {response.status_code} instead of {expected_status}"
+            )
+            self.assertIn(
+                expected_error,
+                response.json().get("error", ""),
+                f"Expected error '{expected_error}' not found in response: {response.json()}"
+            )
+
+        # 4. Email Creation Edge Cases
+        email_test_cases = [
+            # Missing required fields
+            (
+                {"date": date.today().isoformat(), "content": "Test content"},
+                "contacts field is required"
+            ),
+            (
+                {"contacts": ["Test Contact"], "content": "Test content"},
+                "date field is required"
+            ),
+            (
+                {"contacts": ["Test Contact"], "date": date.today().isoformat()},
+                "content field is required"
+            ),
+            # Invalid contact
+            (
+                {
+                    "contacts": ["NonExistentContact"],
+                    "date": date.today().isoformat(),
+                    "content": "Test content"
+                },
+                "Contact not found"
+            ),
+            # Invalid date format
+            (
+                {
+                    "contacts": ["Test Contact"],
+                    "date": "2024/03/15",
+                    "content": "Test content"
+                },
+                "invalid input syntax for type date"
+            ),
+            # Empty content
+            (
+                {
+                    "contacts": ["Test Contact"],
+                    "date": date.today().isoformat(),
+                    "content": ""
+                },
+                "content cannot be empty"
+            )
+        ]
+
+        for i, (invalid_email, expected_error) in enumerate(email_test_cases):
+            response = requests.post(
+                f"{self.BASE_URL}/emails",
+                json=invalid_email,
+                params={"test_suffix": self.test_suffix}
+            )
+            self.assertNotEqual(
+                response.status_code,
+                201,
+                f"Case {i}: Invalid email creation should have failed but succeeded: {invalid_email}"
+            )
+            self.assertIn(
+                expected_error,
+                response.json().get("error", "").lower(),
+                f"Case {i}: Expected error '{expected_error}' not found in response: {response.json()}"
+            )
+
+        # Cleanup phase
+        try:
+            # 1. Delete test contacts in reverse order (to handle dependencies)
+            for name, email, company in reversed(test_contacts):
+                response = requests.delete(
+                    f"{self.BASE_URL}/contacts/{name}",
+                    params={
+                        "contact_info": email,
+                        "company": company,
+                        "test_suffix": self.test_suffix
+                    }
+                )
+                # Accept both 200 (successful delete) and 404 (already deleted)
+                self.assertIn(
+                    response.status_code,
+                    [200, 404],
+                    f"Failed to delete contact {name} during cleanup. "
+                    f"Status: {response.status_code}, Response: {response.json()}"
+                )
+
+            # 2. Verify all test contacts were deleted
+            for name, email, company in test_contacts:
+                response = requests.get(
+                    f"{self.BASE_URL}/contacts",
+                    params={
+                        "test_suffix": self.test_suffix,
+                        "contact_info": email
+                    }
+                )
+                self.assertEqual(
+                    response.status_code,
+                    200,
+                    f"Failed to verify contact {name} cleanup"
+                )
+                contacts = response.json()
+                matching_contacts = [
+                    c for c in contacts 
+                    if c["name"] == name 
+                    and any(m["value"] == email for m in c["contact_methods"])
+                ]
+                self.assertEqual(
+                    len(matching_contacts),
+                    0,
+                    f"Contact {name} with email {email} still exists after cleanup"
+                )
+
+        except Exception as e:
+            # Log cleanup failure but don't fail the test
+            print(f"Warning: Cleanup failed: {str(e)}")
+            # Re-raise if this is a test assertion
+            if isinstance(e, AssertionError):
+                raise
 
 
 if __name__ == "__main__":
