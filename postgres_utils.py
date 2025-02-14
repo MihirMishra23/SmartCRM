@@ -1,14 +1,18 @@
 import psycopg2
-from typing import Iterator, Union, List
+from typing import Iterator, Union, List, Optional
 import pandas as pd
 from tqdm import tqdm
 
 
 class DataBase:
-    def __init__(self, db_name):
-        # conn = psycopg2.connect("dbname=" + p_db_name + " user=" + p_user + " password=" + p_pass)
+    def __init__(self, db_name: str, test_suffix: Optional[str] = None):
         self.conn = psycopg2.connect(f"dbname={db_name}")
         self.cur = self.conn.cursor()
+        self.test_suffix = test_suffix or ""  # Use empty string if no test suffix
+
+    def _table_name(self, base_name: str) -> str:
+        """Get the actual table name with test suffix if present"""
+        return f"{base_name}{self.test_suffix}"
 
     def close(self):
         self.cur.close()
@@ -25,20 +29,24 @@ class DataBase:
 
     def add_email(
         self, contacts: List[str], date: str, content: str, summary: str = ""
-    ) -> None:
+    ) -> int:
         """
         Add email to the database, avoiding duplicates while maintaining contact relationships
         Params: contacts: list of contacts (names only),
                 date: date of email (date only),
                 content: content of email,
                 summary: summary of email
+        Returns: ID of the email (either newly created or existing)
         """
         # Escape single quotes
         content = content.replace("'", "''")
         summary = summary.replace("'", "''")
 
         # First check if this email content already exists
-        self.cur.execute(f"SELECT id FROM emails WHERE content = '{content}'")
+        self.cur.execute(
+            f"SELECT id FROM {self._table_name('emails')} WHERE content = %s",
+            (content,),
+        )
         existing_email = self.cur.fetchone()
 
         if existing_email:
@@ -46,7 +54,11 @@ class DataBase:
         else:
             # Add new email if it doesn't exist
             self.cur.execute(
-                f"INSERT INTO emails (date, summary, content) VALUES ('{date}', '{summary}', '{content}') RETURNING id"
+                f"""
+                INSERT INTO {self._table_name('emails')} (date, summary, content) 
+                VALUES (%s, %s, %s) RETURNING id
+                """,
+                (date, summary, content),
             )
             item = self.cur.fetchone()
             if item is None:
@@ -54,12 +66,14 @@ class DataBase:
             email_id = item[0]
 
         # Get contact IDs for all involved contacts
-        contacts_string = ", ".join([f"'{contact}'" for contact in contacts])
+        contacts_string = ", ".join(
+            ["'" + c.replace("'", "''") + "'" for c in contacts]
+        )
         self.cur.execute(
             f"""
             SELECT DISTINCT c.id 
-            FROM contacts c
-            JOIN contact_methods cm ON c.id = cm.contact_id
+            FROM {self._table_name('contacts')} c
+            JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
             WHERE cm.value IN ({contacts_string})
             """
         )
@@ -69,40 +83,47 @@ class DataBase:
         for contact_id in contact_ids:
             self.cur.execute(
                 f"""
-                INSERT INTO contact_emails (contact_id, email_id)
-                VALUES ({contact_id}, {email_id})
+                INSERT INTO {self._table_name('contact_emails')} (contact_id, email_id)
+                VALUES (%s, %s)
                 ON CONFLICT (contact_id, email_id) DO NOTHING
-                """
+                """,
+                (contact_id, email_id),
             )
 
             # Update last_contacted date if this is more recent
             self.cur.execute(
                 f"""
-                UPDATE contacts 
-                SET last_contacted = '{date}' 
-                WHERE id = {contact_id}
-                AND (last_contacted IS NULL OR last_contacted < '{date}')
-                """
+                UPDATE {self._table_name('contacts')}
+                SET last_contacted = %s
+                WHERE id = %s
+                AND (last_contacted IS NULL OR last_contacted < %s)
+                """,
+                (date, contact_id, date),
             )
 
         self.conn.commit()
+        return email_id
 
     def fetch_emails(self, contacts: List = []) -> Iterator[tuple]:
         if contacts == []:
-            self.cur.execute("SELECT * FROM emails")
+            self.cur.execute(f"SELECT * FROM {self._table_name('emails')}")
             return iter(self.cur)
-        contacts_string = ", ".join([f"'{contact}'" for contact in contacts])
+        contacts_string = ", ".join(
+            ["'" + c.replace("'", "''") + "'" for c in contacts]
+        )
         self.cur.execute(
-            f"""SELECT e.*
-FROM emails e
-JOIN contact_emails ce ON e.id = ce.email_id
-JOIN contacts c ON ce.contact_id = c.id
-WHERE c.name IN ({contacts_string});"""
+            f"""
+            SELECT e.*
+            FROM {self._table_name('emails')} e
+            JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
+            JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
+            WHERE c.name IN ({contacts_string});
+            """
         )
         return iter(self.cur)
 
     def fetch_contacts(self) -> Iterator[tuple]:
-        self.cur.execute("SELECT * FROM contacts")
+        self.cur.execute(f"SELECT * FROM {self._table_name('contacts')}")
         return iter(self.cur)
 
     def fetch_contacts_as_dicts(self):
@@ -119,8 +140,8 @@ WHERE c.name IN ({contacts_string});"""
                         'is_primary', cm.is_primary
                     )
                 ) as contact_methods
-            FROM contacts c
-            LEFT JOIN contact_methods cm ON c.id = cm.contact_id
+            FROM {self._table_name('contacts')} c
+            LEFT JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
             GROUP BY c.id
         """
         self.cur.execute(query)
@@ -166,8 +187,8 @@ WHERE c.name IN ({contacts_string});"""
 
         # Insert the contact first
         self.cur.execute(
-            """
-            INSERT INTO contacts 
+            f"""
+            INSERT INTO {self._table_name('contacts')}
             (name, company, last_contacted, follow_up_date, warm, notes, reminder, position) 
             VALUES 
             (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -193,7 +214,7 @@ WHERE c.name IN ({contacts_string});"""
         for method in contact_methods:
             self.cur.execute(
                 f"""
-                INSERT INTO contact_methods 
+                INSERT INTO {self._table_name('contact_methods')}
                 (contact_id, method_type, value, is_primary)
                 VALUES (%s, %s, %s, %s)
                 """,
@@ -347,3 +368,83 @@ WHERE c.name IN ({contacts_string});"""
             contacts_data = row[-1]  # Contacts array
             contacts_list = [(c["name"], c["email"]) for c in contacts_data]
             yield (email_record, contacts_list)
+
+    def delete_contact(
+        self, 
+        name: str, 
+        contact_info: Optional[str] = None,
+        company: Optional[str] = None
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Delete a contact and all associated data by name and optional identifying information
+        Args:
+            name: Name of the contact to delete
+            contact_info: Optional contact information (email, phone, or linkedin) to identify the contact
+            company: Optional company name to identify the contact
+        Returns:
+            tuple: (success, error_message)
+                - success: True if contact was found and deleted, False otherwise
+                - error_message: None if successful, error description if failed
+        """
+        # Build the base query
+        query = f"""
+            SELECT c.id, c.company, array_agg(json_build_object(
+                'type', cm.method_type,
+                'value', cm.value
+            )) as methods
+            FROM {self._table_name('contacts')} c
+            LEFT JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
+            WHERE c.name = %s
+        """
+        params = [name]
+        
+        # Add additional filters if provided
+        if company is not None:
+            query += " AND c.company = %s"
+            params.append(company)
+            
+        if contact_info is not None:
+            query += f" AND EXISTS (SELECT 1 FROM {self._table_name('contact_methods')} cm2 WHERE cm2.contact_id = c.id AND cm2.value = %s)"
+            params.append(contact_info)
+            
+        query += " GROUP BY c.id, c.company"
+        
+        self.cur.execute(query, tuple(params))
+        contacts = self.cur.fetchall()
+        
+        if not contacts:
+            error_msg = "Contact not found"
+            if company:
+                error_msg += f" at company '{company}'"
+            if contact_info:
+                error_msg += f" with contact info '{contact_info}'"
+            return False, error_msg
+        
+        if len(contacts) > 1:
+            # Format contact methods for error message
+            contact_details = []
+            for contact in contacts:
+                contact_id, company_name, methods = contact
+                company_str = f" at {company_name}" if company_name else ""
+                methods = methods if methods[0] is not None else []
+                methods_str = ", ".join(f"{m['type']}: {m['value']}" for m in methods)
+                contact_details.append(f"{company_str} ({methods_str})")
+            
+            return False, f"Multiple contacts found with name '{name}'. Please provide additional information to identify the correct contact: {'; '.join(contact_details)}"
+
+        # Delete single contact and all related data
+        contact_id = contacts[0][0]
+        self.cur.execute(
+            f"DELETE FROM {self._table_name('contact_emails')} WHERE contact_id = %s",
+            (contact_id,)
+        )
+        self.cur.execute(
+            f"DELETE FROM {self._table_name('contact_methods')} WHERE contact_id = %s",
+            (contact_id,)
+        )
+        self.cur.execute(
+            f"DELETE FROM {self._table_name('contacts')} WHERE id = %s",
+            (contact_id,)
+        )
+        self.conn.commit()
+        return True, None
