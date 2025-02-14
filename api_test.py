@@ -421,6 +421,101 @@ class TestFlaskAPI(unittest.TestCase):
             f"Could not find 'Minimal email content' in emails: {emails}"
         )
 
+        # Test error case 1: Creating email for non-existent contact
+        nonexistent_email = {
+            "contacts": ["Non Existent Contact"],
+            "date": date.today().isoformat(),
+            "content": "This should fail"
+        }
+        response = requests.post(
+            f"{self.BASE_URL}/emails",
+            json=nonexistent_email,
+            params={"test_suffix": self.test_suffix}
+        )
+        self.assertEqual(
+            response.status_code,
+            404,
+            f"Email creation with non-existent contact should have failed with 404 but got {response.status_code}. Response: {response.json()}"
+        )
+
+        # Test error case 2: Invalid date format
+        invalid_date_email = {
+            "contacts": ["Email Test Contact"],
+            "date": "2024/03/15",  # Wrong format, should be ISO format
+            "content": "This should fail"
+        }
+        response = requests.post(
+            f"{self.BASE_URL}/emails",
+            json=invalid_date_email,
+            params={"test_suffix": self.test_suffix}
+        )
+        self.assertEqual(
+            response.status_code,
+            400,
+            f"Email creation with invalid date format should have failed with 400 but got {response.status_code}. Response: {response.json()}"
+        )
+
+        # Test error case 3: Missing required fields
+        missing_fields_cases = [
+            {"date": date.today().isoformat(), "content": "Missing contacts"},  # Missing contacts
+            {"contacts": ["Email Test Contact"], "content": "Missing date"},    # Missing date
+            {"contacts": ["Email Test Contact"], "date": date.today().isoformat()}  # Missing content
+        ]
+        for i, invalid_email in enumerate(missing_fields_cases):
+            response = requests.post(
+                f"{self.BASE_URL}/emails",
+                json=invalid_email,
+                params={"test_suffix": self.test_suffix}
+            )
+            self.assertEqual(
+                response.status_code,
+                400,
+                f"Case {i}: Email creation with missing fields should have failed with 400 but got {response.status_code}. "
+                f"Email: {invalid_email}, Response: {response.json()}"
+            )
+
+        # Cleanup: Delete all created emails and contacts
+        # 1. Get all emails for the test contact
+        response = requests.get(
+            f"{self.BASE_URL}/emails",
+            params={
+                "contacts": ["Email Test Contact"],
+                "test_suffix": self.test_suffix
+            }
+        )
+        self.assertEqual(response.status_code, 200, "Failed to get emails for cleanup")
+        emails = response.json()
+        
+        # 2. Delete the test contact (this should cascade delete the contact_emails relationships)
+        response = requests.delete(
+            f"{self.BASE_URL}/contacts/Email Test Contact",
+            params={
+                "contact_info": "email_test@example.com",
+                "test_suffix": self.test_suffix
+            }
+        )
+        self.assertEqual(
+            response.status_code,
+            200,
+            f"Failed to delete test contact during cleanup. Status: {response.status_code}, Response: {response.json()}"
+        )
+
+        # 3. Verify cleanup was successful
+        response = requests.get(
+            f"{self.BASE_URL}/emails",
+            params={
+                "contacts": ["Email Test Contact"],
+                "test_suffix": self.test_suffix
+            }
+        )
+        self.assertEqual(response.status_code, 200, "Failed to verify email cleanup")
+        remaining_emails = response.json()
+        self.assertEqual(
+            len(remaining_emails),
+            0,
+            f"Expected 0 emails after cleanup, but found {len(remaining_emails)}"
+        )
+
     def test_edge_cases(self):
         """Test edge cases and error handling"""
         # Test missing required fields
