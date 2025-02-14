@@ -130,28 +130,47 @@ def add_email():
 
 @app.route("/contacts/<name>", methods=["DELETE"])
 def delete_contact(name: str):
-    """Delete a contact by name"""
+    """
+    Delete a contact by name and optional identifying information
+    
+    Path Parameters:
+        name: Name of the contact to delete
+        
+    Query Parameters:
+        contact_info: Optional contact information (email, phone, or linkedin) to help identify 
+                     the correct contact when multiple contacts share the same name
+        company: Optional company name to help identify the correct contact when multiple 
+                contacts share the same name
+        test_suffix: Optional test suffix for test database tables
+        
+    Returns:
+        200: Contact successfully deleted
+        404: Contact not found
+        409: Multiple contacts found - additional identifying information needed
+        500: Server error
+    """
     try:
         test_suffix = request.args.get("test_suffix")
+        contact_info = request.args.get("contact_info")
+        company = request.args.get("company")
+        
         db = get_db(test_suffix)
-        # First check if contact exists
-        db.cur.execute("SELECT id FROM contacts WHERE name = %s", (name,))
-        contact = db.cur.fetchone()
-        if not contact:
-            return jsonify({"error": f"Contact {name} not found"}), 404
-
-        # Delete contact and all related data
-        contact_id = contact[0]
-        db.cur.execute(
-            "DELETE FROM contact_emails WHERE contact_id = %s", (contact_id,)
+        success, error_message = db.delete_contact(
+            name=name,
+            contact_info=contact_info,
+            company=company
         )
-        db.cur.execute(
-            "DELETE FROM contact_methods WHERE contact_id = %s", (contact_id,)
-        )
-        db.cur.execute("DELETE FROM contacts WHERE id = %s", (contact_id,))
-        db.conn.commit()
-
-        return jsonify({"message": f"Contact {name} deleted successfully"}), 200
+        
+        if success:
+            return jsonify({"message": f"Contact {name} deleted successfully"}), 200
+        else:
+            # If there's a specific error message (like multiple contacts found),
+            # return 409 Conflict, otherwise 404 Not Found
+            if isinstance(error_message, str) and "Multiple contacts found" in error_message:
+                status_code = 409
+            else:
+                status_code = 404
+            return jsonify({"error": error_message}), status_code
     except Exception as e:
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
