@@ -185,6 +185,25 @@ class DataBase:
         if position == "nan":
             position = None
 
+        # Check for duplicate contact methods
+        for method in contact_methods:
+            self.cur.execute(
+                f"""
+                SELECT c.name, c.company, cm.method_type, cm.value
+                FROM {self._table_name('contact_methods')} cm
+                JOIN {self._table_name('contacts')} c ON c.id = cm.contact_id
+                WHERE cm.value = %s
+                """,
+                (method["value"],)
+            )
+            existing = self.cur.fetchone()
+            if existing:
+                existing_name, existing_company, existing_type, existing_value = existing
+                company_str = f" at {existing_company}" if existing_company else ""
+                raise ValueError(
+                    f"Contact information '{existing_value}' ({existing_type}) is already used by contact '{existing_name}'{company_str}"
+                )
+
         # Insert the contact first
         self.cur.execute(
             f"""
