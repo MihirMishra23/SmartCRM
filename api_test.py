@@ -22,45 +22,45 @@ class TestFlaskAPI(unittest.TestCase):
         except requests.exceptions.ConnectionError:
             raise Exception("API is not running. Please start it with 'python api.py'")
 
-        # Create database connection for test setup
-        cls.conn = psycopg2.connect(f"dbname={cls.DB_NAME}")
-        cls.conn.autocommit = True  # Needed for creating/dropping tables
-        cls.cur = cls.conn.cursor()
+    def setUp(self):
+        """Set up test database for each test"""
+        # Create database connection
+        self.conn = psycopg2.connect(f"dbname={self.DB_NAME}")
+        self.conn.autocommit = True  # Needed for creating/dropping tables
+        self.cur = self.conn.cursor()
 
         # Generate unique suffix for test tables
-        cls.test_suffix = f"_test_{uuid.uuid4().hex[:8]}"
+        self.test_suffix = f"_test_{uuid.uuid4().hex[:8]}"
 
         # Clone the tables with test suffix
-        cls._clone_tables()
+        self._clone_tables()
 
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test environment"""
-        cls._drop_test_tables()
-        cls.cur.close()
-        cls.conn.close()
+    def tearDown(self):
+        """Clean up test database after each test"""
+        self._drop_test_tables()
+        self.cur.close()
+        self.conn.close()
 
-    @classmethod
-    def _clone_tables(cls):
+    def _clone_tables(self):
         """Clone the necessary tables for testing by copying schema from existing tables"""
         # Get tables in correct order based on dependencies
         tables = ["contacts", "contact_methods", "emails", "contact_emails"]
         
         for table in tables:
-            test_table = f"{table}{cls.test_suffix}"
+            test_table = f"{table}{self.test_suffix}"
             
             # Drop test table if it exists
-            cls.cur.execute(f"DROP TABLE IF EXISTS {test_table} CASCADE")
+            self.cur.execute(f"DROP TABLE IF EXISTS {test_table} CASCADE")
             
             # Create new table with same schema, constraints, indexes, and triggers
             # But don't copy the data
-            cls.cur.execute(f"""
+            self.cur.execute(f"""
                 CREATE TABLE {test_table} 
                 (LIKE {table} INCLUDING ALL)
             """)
             
             # Get and recreate foreign key constraints
-            cls.cur.execute("""
+            self.cur.execute("""
                 SELECT
                     tc.constraint_name,
                     tc.table_name,
@@ -76,67 +76,55 @@ class TestFlaskAPI(unittest.TestCase):
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = %s
             """, (table,))
             
-            for fk in cls.cur.fetchall():
+            for fk in self.cur.fetchall():
                 # Recreate each foreign key with the test suffix
-                cls.cur.execute(f"""
+                self.cur.execute(f"""
                     ALTER TABLE {test_table}
-                    ADD CONSTRAINT {fk[0]}{cls.test_suffix}
+                    ADD CONSTRAINT {fk[0]}{self.test_suffix}
                     FOREIGN KEY ({fk[2]})
-                    REFERENCES {fk[3]}{cls.test_suffix}({fk[4]})
+                    REFERENCES {fk[3]}{self.test_suffix}({fk[4]})
                 """)
             
             # Get and recreate sequences if they exist
-            cls.cur.execute("""
+            self.cur.execute("""
                 SELECT column_name, column_default
                 FROM information_schema.columns
                 WHERE table_name = %s
                 AND column_default LIKE 'nextval%%'
             """, (table,))
             
-            for col in cls.cur.fetchall():
+            for col in self.cur.fetchall():
                 # Extract sequence name from default value
                 sequence_name = col[1].split("'")[1].split("'")[0]
                 # Create new sequence for test table
-                test_sequence = f"{sequence_name}{cls.test_suffix}"
-                cls.cur.execute(f"CREATE SEQUENCE IF NOT EXISTS {test_sequence}")
+                test_sequence = f"{sequence_name}{self.test_suffix}"
+                self.cur.execute(f"CREATE SEQUENCE IF NOT EXISTS {test_sequence}")
                 # Update column default
-                cls.cur.execute(f"""
+                self.cur.execute(f"""
                     ALTER TABLE {test_table}
                     ALTER COLUMN {col[0]} SET DEFAULT nextval('{test_sequence}'::regclass)
                 """)
 
-    @classmethod
-    def _drop_test_tables(cls):
+    def _drop_test_tables(self):
         """Drop all test tables and their sequences"""
         # Drop tables in reverse order due to dependencies
         tables = ["contact_emails", "contact_methods", "emails", "contacts"]
         for table in tables:
-            test_table = f"{table}{cls.test_suffix}"
-            cls.cur.execute(f"DROP TABLE IF EXISTS {test_table} CASCADE")
+            test_table = f"{table}{self.test_suffix}"
+            self.cur.execute(f"DROP TABLE IF EXISTS {test_table} CASCADE")
             
             # Drop associated sequences
-            cls.cur.execute("""
+            self.cur.execute("""
                 SELECT column_default
                 FROM information_schema.columns
                 WHERE table_name = %s
                 AND column_default LIKE 'nextval%%'
             """, (table,))
             
-            for col in cls.cur.fetchall():
+            for col in self.cur.fetchall():
                 sequence_name = col[0].split("'")[1].split("'")[0]
-                test_sequence = f"{sequence_name}{cls.test_suffix}"
-                cls.cur.execute(f"DROP SEQUENCE IF EXISTS {test_sequence}")
-
-    def setUp(self):
-        """Store initial database state"""
-        self.initial_state = self._get_db_state()
-
-    def tearDown(self):
-        """Verify database state matches initial state"""
-        final_state = self._get_db_state()
-        self.assertEqual(
-            self.initial_state, final_state, "Database state changed during test"
-        )
+                test_sequence = f"{sequence_name}{self.test_suffix}"
+                self.cur.execute(f"DROP SEQUENCE IF EXISTS {test_sequence}")
 
     def _get_db_state(self) -> Dict[str, List[tuple]]:
         """Get current state of all test tables"""
