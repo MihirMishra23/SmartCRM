@@ -18,6 +18,7 @@ click
 docker-pycreds
 et-xmlfile
 exceptiongroup
+Flask
 frozenlist
 gitdb
 GitPython
