@@ -172,7 +172,10 @@ class DataBase:
         notes: Union[str, None] = None,
         position: Union[str, None] = None,
     ):
-        """Add a contact with multiple contact methods"""
+        """
+        Add a contact with multiple contact methods.
+        Multiple contacts can have the same name, but each contact method value must be unique.
+        """
         # check for nans
         if company == "nan":
             company = None
@@ -201,7 +204,7 @@ class DataBase:
                 existing_name, existing_company, existing_type, existing_value = existing
                 company_str = f" at {existing_company}" if existing_company else ""
                 raise ValueError(
-                    f"Contact information '{existing_value}' ({existing_type}) is already used by contact '{existing_name}'{company_str}"
+                    f"Contact method '{existing_value}' ({existing_type}) is already used by contact '{existing_name}'{company_str}"
                 )
 
         # Insert the contact first
