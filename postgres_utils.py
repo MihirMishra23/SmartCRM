@@ -152,9 +152,13 @@ class DataBase:
         return contacts
 
     def reset_database(self):
-        command = (
-            "TRUNCATE TABLE contacts, contact_emails, emails RESTART IDENTITY CASCADE"
-        )
+        command = f"""
+            TRUNCATE TABLE 
+            {self._table_name('contacts')}, 
+            {self._table_name('contact_emails')}, 
+            {self._table_name('emails')} 
+            RESTART IDENTITY CASCADE
+        """
         self.cur.execute(command)
         self.conn.commit()
 
@@ -298,7 +302,10 @@ class DataBase:
         summary = summary.replace("'", "''")
 
         # First check if this email content already exists
-        self.cur.execute(f"SELECT id FROM emails WHERE content = '{content}'")
+        self.cur.execute(
+            f"SELECT id FROM {self._table_name('emails')} WHERE content = %s",
+            (content,)
+        )
         existing_email = self.cur.fetchone()
 
         if existing_email:
@@ -306,7 +313,11 @@ class DataBase:
         else:
             # Add new email if it doesn't exist
             self.cur.execute(
-                f"INSERT INTO emails (date, summary, content) VALUES ('{date}', '{summary}', '{content}') RETURNING id"
+                f"""
+                INSERT INTO {self._table_name('emails')} (date, summary, content) 
+                VALUES (%s, %s, %s) RETURNING id
+                """,
+                (date, summary, content)
             )
             item = self.cur.fetchone()
             if item is None:
@@ -316,20 +327,22 @@ class DataBase:
         # Add contact-email relationship if it doesn't exist
         self.cur.execute(
             f"""
-            INSERT INTO contact_emails (contact_id, email_id)
-            VALUES ({contact_id}, {email_id})
+            INSERT INTO {self._table_name('contact_emails')} (contact_id, email_id)
+            VALUES (%s, %s)
             ON CONFLICT (contact_id, email_id) DO NOTHING
-            """
+            """,
+            (contact_id, email_id)
         )
 
         # Update last_contacted date if this is more recent
         self.cur.execute(
             f"""
-            UPDATE contacts 
-            SET last_contacted = '{date}' 
-            WHERE id = {contact_id}
-            AND (last_contacted IS NULL OR last_contacted < '{date}')
-            """
+            UPDATE {self._table_name('contacts')} 
+            SET last_contacted = %s 
+            WHERE id = %s
+            AND (last_contacted IS NULL OR last_contacted < %s)
+            """,
+            (date, contact_id, date)
         )
 
         self.conn.commit()
@@ -353,32 +366,32 @@ class DataBase:
             query = f"""
                 WITH email_ids AS (
                     SELECT DISTINCT e.id
-                    FROM emails e
-                    JOIN contact_emails ce ON e.id = ce.email_id
-                    JOIN contacts c ON ce.contact_id = c.id
+                    FROM {self._table_name('emails')} e
+                    JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
+                    JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
                     WHERE c.name IN ({contacts_string})
                 )
                 SELECT 
                     e.id, e.date, e.summary, e.content,
                     array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
                 FROM email_ids ei
-                JOIN emails e ON e.id = ei.id
-                JOIN contact_emails ce ON e.id = ce.email_id
-                JOIN contacts c ON ce.contact_id = c.id
-                JOIN contact_methods cm ON c.id = cm.contact_id
+                JOIN {self._table_name('emails')} e ON e.id = ei.id
+                JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
+                JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
+                JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
                 WHERE cm.method_type = 'email'
                 GROUP BY e.id, e.date, e.summary, e.content
                 ORDER BY e.date DESC;
             """
         else:
-            query = """
+            query = f"""
                 SELECT 
                     e.id, e.date, e.summary, e.content,
                     array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
-                FROM emails e
-                JOIN contact_emails ce ON e.id = ce.email_id
-                JOIN contacts c ON ce.contact_id = c.id
-                JOIN contact_methods cm ON c.id = cm.contact_id
+                FROM {self._table_name('emails')} e
+                JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
+                JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
+                JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
                 WHERE cm.method_type = 'email'
                 GROUP BY e.id, e.date, e.summary, e.content
                 ORDER BY e.date DESC;
