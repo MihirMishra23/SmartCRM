@@ -173,103 +173,166 @@ class TestFlaskAPI(unittest.TestCase):
 
     def test_contacts_crud(self):
         """Test contact creation, retrieval, and validation"""
-        # Test creating a valid contact with all fields
-        new_contact = {
-            "name": "Test Contact",  # Required
-            "contact_methods": [  # At least one method required
-                {
-                    "type": "email",
-                    "value": "test@example.com",
-                    "is_primary": True
-                },
-                {
-                    "type": "phone",
-                    "value": "123-456-7890",
-                    "is_primary": False
-                }
-            ],
-            "company": "Test Corp",
-            "position": "Test Engineer",
-            "notes": "Test notes",
-            "warm": True,
-            "reminder": True,
-            "last_contacted": date.today().isoformat(),
-            "follow_up_date": date.today().isoformat()
-        }
-        response = requests.post(
-            f"{self.BASE_URL}/contacts",
-            json=new_contact,
-            params={"test_suffix": self.test_suffix}
-        )
-        self.assertEqual(
-            response.status_code, 
-            201, 
-            f"Failed to create contact with all fields. Status: {response.status_code}, Response: {response.json()}"
-        )
+        def verify_contact_count(expected_count, message=""):
+            """Helper method to verify the number of contacts and return them"""
+            response = requests.get(
+                f"{self.BASE_URL}/contacts",
+                params={"test_suffix": self.test_suffix}
+            )
+            contacts = response.json()
+            self.assertEqual(
+                len(contacts),
+                expected_count,
+                f"{message} Expected {expected_count} contacts, but found {len(contacts)}. Contacts: {contacts}"
+            )
+            return contacts
 
-        # Test creating contact with minimum required fields
-        min_contact = {
-            "name": "Min Contact",
-            "contact_methods": [
-                {
-                    "type": "email",
-                    "value": "min@example.com",
-                    "is_primary": True
-                }
-            ]
-        }
-        response = requests.post(
-            f"{self.BASE_URL}/contacts",
-            json=min_contact,
-            params={"test_suffix": self.test_suffix}
-        )
-        self.assertEqual(
-            response.status_code, 
-            201, 
-            f"Failed to create contact with minimum fields. Status: {response.status_code}, Response: {response.json()}"
-        )
+        # 1. Test Contact Creation
+        contacts_to_create = [
+            # Full contact with all fields
+            {
+                "name": "Test Contact",
+                "contact_methods": [
+                    {"type": "email", "value": "test@example.com", "is_primary": True},
+                    {"type": "phone", "value": "123-456-7890", "is_primary": False}
+                ],
+                "company": "Test Corp",
+                "position": "Test Engineer",
+                "notes": "Test notes",
+                "warm": True,
+                "reminder": True,
+                "last_contacted": date.today().isoformat(),
+                "follow_up_date": date.today().isoformat()
+            },
+            # Second contact with same name but different details
+            {
+                "name": "Test Contact",
+                "contact_methods": [
+                    {"type": "email", "value": "another@example.com", "is_primary": True},
+                    {"type": "phone", "value": "987-654-3210", "is_primary": False}
+                ],
+                "company": "Another Corp"
+            },
+            # Third contact with same name but minimal details
+            {
+                "name": "Test Contact",
+                "contact_methods": [
+                    {"type": "email", "value": "third@example.com", "is_primary": True}
+                ]
+            },
+            # Minimal contact
+            {
+                "name": "Min Contact",
+                "contact_methods": [
+                    {"type": "email", "value": "min@example.com", "is_primary": True}
+                ]
+            }
+        ]
 
-        # Verify contacts were added
-        response = requests.get(
-            f"{self.BASE_URL}/contacts",
-            params={"test_suffix": self.test_suffix}
-        )
-        contacts = response.json()
+        # Create all contacts and verify each creation
+        for i, contact in enumerate(contacts_to_create):
+            response = requests.post(
+                f"{self.BASE_URL}/contacts",
+                json=contact,
+                params={"test_suffix": self.test_suffix}
+            )
+            self.assertEqual(
+                response.status_code,
+                201,
+                f"Failed to create contact {i + 1}. Status: {response.status_code}, Response: {response.json()}"
+            )
+
+        # Verify all contacts were added correctly
+        contacts = verify_contact_count(4, "After creating all contacts:")
+        test_contacts = [c for c in contacts if c["name"] == "Test Contact"]
         self.assertEqual(
-            len(contacts), 
-            2, 
-            f"Expected 2 contacts, but found {len(contacts)}. Contacts: {contacts}"
-        )
-        self.assertTrue(
-            any(c["name"] == "Test Contact" for c in contacts),
-            f"Could not find 'Test Contact' in contacts: {contacts}"
+            len(test_contacts),
+            3,
+            f"Expected 3 'Test Contact' contacts, but found {len(test_contacts)}. Contacts: {contacts}"
         )
         self.assertTrue(
             any(c["name"] == "Min Contact" for c in contacts),
             f"Could not find 'Min Contact' in contacts: {contacts}"
         )
 
-        # Test duplicate contact method value (should fail)
-        duplicate_contact = {
-            "name": "Duplicate Contact",
+        # 2. Test Duplicate Prevention
+        duplicate_method_contact = {
+            "name": "Different Contact",
             "contact_methods": [
                 {
                     "type": "email",
-                    "value": "test@example.com",  # Already used
+                    "value": "test@example.com",  # Already used by first contact
                     "is_primary": True
                 }
             ]
         }
         response = requests.post(
             f"{self.BASE_URL}/contacts",
-            json=duplicate_contact,
+            json=duplicate_method_contact,
             params={"test_suffix": self.test_suffix}
         )
         self.assertNotEqual(
-            response.status_code, 
-            201, 
-            f"Duplicate contact creation should have failed but succeeded with status 201"
+            response.status_code,
+            201,
+            f"Contact creation with duplicate method should have failed but succeeded with status 201"
         )
+
+        # 3. Test Deletion Scenarios
+        # Test invalid deletions first
+        deletion_tests = [
+            # (name, company, contact_info, expected_status)
+            ("NonExistentContact", None, None, 404),  # Non-existent contact
+            ("Test Contact", None, None, 409)  # Ambiguous name without specifics
+        ]
+
+        for name, company, contact_info, expected_status in deletion_tests:
+            params = {"test_suffix": self.test_suffix}
+            if company:
+                params["company"] = company
+            if contact_info:
+                params["contact_info"] = contact_info
+
+            response = requests.delete(
+                f"{self.BASE_URL}/contacts/{name}",
+                params=params
+            )
+            self.assertEqual(
+                response.status_code,
+                expected_status,
+                f"Deletion test for {name} (company: {company}, contact_info: {contact_info}) "
+                f"expected status {expected_status} but got {response.status_code}. "
+                f"Response: {response.json()}"
+            )
+
+        # Delete all contacts systematically
+        deletion_order = [
+            # (name, company, contact_info)
+            ("Test Contact", "Test Corp", None),  # First by company
+            ("Test Contact", None, "another@example.com"),  # Second by email
+            ("Min Contact", None, "min@example.com"),  # Min contact by email
+            ("Test Contact", None, "third@example.com")  # Last by email
+        ]
+
+        for name, company, contact_info in deletion_order:
+            params = {"test_suffix": self.test_suffix}
+            if company:
+                params["company"] = company
+            if contact_info:
+                params["contact_info"] = contact_info
+
+            response = requests.delete(
+                f"{self.BASE_URL}/contacts/{name}",
+                params=params
+            )
+            self.assertEqual(
+                response.status_code,
+                200,
+                f"Failed to delete contact {name} with params {params}. "
+                f"Status: {response.status_code}, Response: {response.json()}"
+            )
+            
+        # Verify all contacts were deleted
+        verify_contact_count(0, "After all deletions:")
 
     def test_emails_crud(self):
         """Test email creation, retrieval, and filtering"""
