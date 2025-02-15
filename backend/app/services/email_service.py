@@ -10,6 +10,7 @@ from ..models.email import Email
 from ..models.contact import Contact
 from ..models.base import db
 import base64
+from sqlalchemy.exc import SQLAlchemyError
 
 
 class EmailService:
@@ -138,3 +139,22 @@ class EmailService:
         except Exception as e:
             db.session.rollback()
             raise RuntimeError(f"Error saving emails to database: {str(e)}")
+
+    @staticmethod
+    def get_emails_for_contacts(contact_ids: Optional[List[int]] = None) -> List[Email]:
+        """Get emails for specified contacts or all emails if no contacts specified"""
+        query = Email.query
+        if contact_ids:
+            query = query.join(Email.contacts).filter(Contact.id.in_(contact_ids))
+        return query.order_by(Email.date.desc()).all()
+
+    @staticmethod
+    def format_email_response(email: Email) -> dict:
+        """Format an email object into API response format"""
+        return {
+            "id": email.id,
+            "date": email.date.isoformat(),
+            "content": email.content,
+            "summary": email.summary,
+            "contacts": [{"id": c.id, "name": c.name} for c in email.contacts],
+        }
