@@ -348,7 +348,7 @@ class TestFlaskAPI(unittest.TestCase):
 
         # Test creating an email with all fields
         new_email = {
-            "contacts": ["Email Test Contact"],
+            "contacts": ["email_test@example.com"],
             "date": date.today().isoformat(),
             "content": "Test email content",
             "summary": "Test summary"
@@ -366,7 +366,7 @@ class TestFlaskAPI(unittest.TestCase):
 
         # Test creating an email with minimum fields
         min_email = {
-            "contacts": ["Email Test Contact"],
+            "contacts": ["email_test@example.com"],
             "date": date.today().isoformat(),
             "content": "Minimal email content"
         }
@@ -385,7 +385,7 @@ class TestFlaskAPI(unittest.TestCase):
         response = requests.get(
             f"{self.BASE_URL}/emails",
             params={
-                "contacts": ["Email Test Contact"],
+                "contacts": ["email_test@example.com"],
                 "test_suffix": self.test_suffix
             }
         )
@@ -411,7 +411,7 @@ class TestFlaskAPI(unittest.TestCase):
 
         # Test error case 1: Creating email for non-existent contact
         nonexistent_email = {
-            "contacts": ["Non Existent Contact"],
+            "contacts": ["nonexistent@example.com"],
             "date": date.today().isoformat(),
             "content": "This should fail"
         }
@@ -428,7 +428,7 @@ class TestFlaskAPI(unittest.TestCase):
 
         # Test error case 2: Invalid date format
         invalid_date_email = {
-            "contacts": ["Email Test Contact"],
+            "contacts": ["email_test@example.com"],
             "date": "2024/03/15",  # Wrong format, should be ISO format
             "content": "This should fail"
         }
@@ -446,8 +446,8 @@ class TestFlaskAPI(unittest.TestCase):
         # Test error case 3: Missing required fields
         missing_fields_cases = [
             {"date": date.today().isoformat(), "content": "Missing contacts"},  # Missing contacts
-            {"contacts": ["Email Test Contact"], "content": "Missing date"},    # Missing date
-            {"contacts": ["Email Test Contact"], "date": date.today().isoformat()}  # Missing content
+            {"contacts": ["email_test@example.com"], "content": "Missing date"},    # Missing date
+            {"contacts": ["email_test@example.com"], "date": date.today().isoformat()}  # Missing content
         ]
         for i, invalid_email in enumerate(missing_fields_cases):
             response = requests.post(
@@ -467,7 +467,7 @@ class TestFlaskAPI(unittest.TestCase):
         response = requests.get(
             f"{self.BASE_URL}/emails",
             params={
-                "contacts": ["Email Test Contact"],
+                "contacts": ["email_test@example.com"],
                 "test_suffix": self.test_suffix
             }
         )
@@ -492,7 +492,7 @@ class TestFlaskAPI(unittest.TestCase):
         response = requests.get(
             f"{self.BASE_URL}/emails",
             params={
-                "contacts": ["Email Test Contact"],
+                "contacts": ["email_test@example.com"],
                 "test_suffix": self.test_suffix
             }
         )
