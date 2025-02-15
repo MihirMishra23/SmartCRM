@@ -32,7 +32,7 @@ class DataBase:
     ) -> int:
         """
         Add email to the database, avoiding duplicates while maintaining contact relationships
-        Params: contacts: list of contacts (names only),
+        Params: contacts: list of contact email addresses,
                 date: date of email (date only),
                 content: content of email,
                 summary: summary of email
@@ -65,7 +65,7 @@ class DataBase:
                 raise ValueError("Failed to insert email")
             email_id = item[0]
 
-        # Get contact IDs for all involved contacts
+        # Get contact IDs for all involved contacts by email address
         contacts_string = ", ".join(
             ["'" + c.replace("'", "''") + "'" for c in contacts]
         )
@@ -74,10 +74,13 @@ class DataBase:
             SELECT DISTINCT c.id 
             FROM {self._table_name('contacts')} c
             JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
-            WHERE cm.value IN ({contacts_string})
+            WHERE cm.method_type = 'email' AND cm.value IN ({contacts_string})
             """
         )
         contact_ids = [contact[0] for contact in self.cur.fetchall()]
+
+        if not contact_ids:
+            raise ValueError(f"No contacts found with email addresses: {contacts}")
 
         # Add contact-email relationships if they don't exist
         for contact_id in contact_ids:
@@ -354,7 +357,7 @@ class DataBase:
         Fetch emails with their associated contacts from the database
 
         Args:
-            contacts: Optional list of contact names to filter by
+            contacts: Optional list of contact email addresses to filter by
 
         Returns:
             Iterator of tuples containing (email_record, list_of_contacts)
@@ -369,11 +372,15 @@ class DataBase:
                     FROM {self._table_name('emails')} e
                     JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
                     JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
-                    WHERE c.name IN ({contacts_string})
+                    JOIN {self._table_name('contact_methods')} cm ON c.id = cm.contact_id
+                    WHERE cm.method_type = 'email' AND cm.value IN ({contacts_string})
                 )
                 SELECT 
                     e.id, e.date, e.summary, e.content,
-                    array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
+                    array_agg(json_build_object(
+                        'name', c.name, 
+                        'email', cm.value
+                    )) as contacts
                 FROM email_ids ei
                 JOIN {self._table_name('emails')} e ON e.id = ei.id
                 JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
@@ -387,7 +394,10 @@ class DataBase:
             query = f"""
                 SELECT 
                     e.id, e.date, e.summary, e.content,
-                    array_agg(json_build_object('name', c.name, 'email', cm.value)) as contacts
+                    array_agg(json_build_object(
+                        'name', c.name, 
+                        'email', cm.value
+                    )) as contacts
                 FROM {self._table_name('emails')} e
                 JOIN {self._table_name('contact_emails')} ce ON e.id = ce.email_id
                 JOIN {self._table_name('contacts')} c ON ce.contact_id = c.id
