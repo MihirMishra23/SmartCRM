@@ -4,6 +4,7 @@ from ..models.contact_method import ContactMethod
 from ..models.email import Email
 from ..models.base import db
 from ..services.email_service import EmailService
+from ..services.contact_service import ContactService
 from datetime import datetime
 from typing import List, Optional
 from functools import wraps
@@ -88,37 +89,15 @@ def validate_contact_data(data):
 
 @api.route("/contacts", methods=["GET"])
 def get_contacts():
-    """Get all contacts"""
+    """Get all contacts with optional filtering"""
     try:
-        contacts = Contact.query.all()
-        return jsonify(
-            [
-                {
-                    "id": c.id,
-                    "name": c.name,
-                    "company": c.company,
-                    "position": c.position,
-                    "last_contacted": (
-                        c.last_contacted.isoformat() if c.last_contacted else None
-                    ),
-                    "follow_up_date": (
-                        c.follow_up_date.isoformat() if c.follow_up_date else None
-                    ),
-                    "warm": c.warm,
-                    "reminder": c.reminder,
-                    "notes": c.notes,
-                    "contact_methods": [
-                        {
-                            "type": cm.method_type,
-                            "value": cm.value,
-                            "is_primary": cm.is_primary,
-                        }
-                        for cm in c.contact_methods
-                    ],
-                }
-                for c in contacts
-            ]
-        )
+        # Allow filtering by name, email, company
+        name = request.args.get("name")
+        email = request.args.get("email")
+        company = request.args.get("company")
+
+        contacts = ContactService.get_contacts(name=name, email=email, company=company)
+        return jsonify([ContactService.format_contact_response(c) for c in contacts])
     except Exception as e:
         raise BadRequestError(f"Failed to fetch contacts: {str(e)}")
 
@@ -127,138 +106,116 @@ def get_contacts():
 def create_contact():
     """Create a new contact"""
     data = request.json
-    if not data:
-        raise BadRequestError("No data provided")
+    if not isinstance(data, dict):
+        raise BadRequestError("Invalid request data")
 
     # Validate input data
     validate_contact_data(data)
 
     try:
-        # Create contact instance with validated data
-        contact = Contact()
-        contact.name = data["name"]
-        contact.company = data.get("company")
-        contact.position = data.get("position")
-        contact.last_contacted = (
-            datetime.fromisoformat(data["last_contacted"]).date()
-            if data.get("last_contacted")
-            else None
-        )
-        contact.follow_up_date = (
-            datetime.fromisoformat(data["follow_up_date"]).date()
-            if data.get("follow_up_date")
-            else None
-        )
-        contact.warm = data.get("warm", False)
-        contact.reminder = data.get("reminder", True)
-        contact.notes = data.get("notes")
-
-        # Add contact methods
-        for method in data.get("contact_methods", []):
-            contact_method = ContactMethod()
-            contact_method.method_type = method["type"]
-            contact_method.value = method["value"]
-            contact_method.is_primary = method.get("is_primary", False)
-            contact.contact_methods.append(contact_method)
-
-        db.session.add(contact)
-        db.session.commit()
-
-        return (
-            jsonify({"id": contact.id, "message": "Contact created successfully"}),
-            201,
-        )
+        contact = ContactService.create_contact(data)
+        # Return the created contact data instead of just ID
+        return jsonify(ContactService.format_contact_response(contact)), 201
     except ValueError as e:
-        raise BadRequestError(f"Invalid date format: {str(e)}")
+        if "already associated with another contact" in str(e):
+            raise ConflictError(str(e))
+        raise BadRequestError(f"Invalid data format: {str(e)}")
     except SQLAlchemyError as e:
-        db.session.rollback()
-        if "contact_methods_contact_id_value_key" in str(e):
-            raise ConflictError("Contact method already exists for this contact")
         raise
 
 
-@api.route("/contacts/<int:contact_id>", methods=["DELETE"])
-def delete_contact(contact_id: int):
-    """Delete a contact"""
-    contact = Contact.query.get(contact_id)
-    if not contact:
-        raise NotFoundError(f"Contact with ID {contact_id} not found")
-
+@api.route("/contacts/<string:email>", methods=["DELETE"])
+def delete_contact(email: str):
+    """Delete a contact by their email address"""
     try:
-        # Delete associated contact methods
-        ContactMethod.query.filter_by(contact_id=contact_id).delete()
-        db.session.delete(contact)
-        db.session.commit()
+        if not ContactService.delete_contact_by_email(email):
+            raise NotFoundError(f"Contact with email {email} not found")
         return jsonify({"message": "Contact deleted successfully"})
     except SQLAlchemyError as e:
-        db.session.rollback()
         raise
 
 
-@api.route("/emails", methods=["GET"])
-def get_emails():
-    """Get emails for contacts"""
+@api.route("/contacts/<string:email>/emails", methods=["GET"])
+def get_contact_emails(email: str):
+    """Get emails for a specific contact"""
     try:
-        contact_ids = request.args.getlist("contact_ids", type=int)
+        contact = ContactService.get_contact_by_email(email)
+        if not contact:
+            raise NotFoundError(f"Contact with email {email} not found")
 
-        query = Email.query
-        if contact_ids:
-            # Verify all contacts exist
-            existing_contacts = Contact.query.filter(Contact.id.in_(contact_ids)).all()
-            if len(existing_contacts) != len(contact_ids):
-                raise NotFoundError("One or more contacts not found")
-
-            query = query.join(Email.contacts).filter(Contact.id.in_(contact_ids))
-
-        emails = query.order_by(Email.date.desc()).all()
-
-        return jsonify(
-            [
-                {
-                    "id": e.id,
-                    "date": e.date.isoformat(),
-                    "content": e.content,
-                    "summary": e.summary,
-                    "contacts": [{"id": c.id, "name": c.name} for c in e.contacts],
-                }
-                for e in emails
-            ]
-        )
+        emails = EmailService.get_emails_for_contacts([contact.id])
+        return jsonify([EmailService.format_email_response(e) for e in emails])
     except Exception as e:
         raise BadRequestError(f"Failed to fetch emails: {str(e)}")
 
 
-@api.route("/sync-emails", methods=["POST"])
-def sync_emails():
-    """Sync emails from Gmail"""
+@api.route("/contacts/<string:email>/sync-emails", methods=["POST"])
+def sync_contact_emails(email: str):
+    """Sync emails for a specific contact"""
     try:
-        data = request.json
-        if not data:
-            raise BadRequestError("No data provided")
-
-        contact_ids = data.get("contact_ids", [])
+        contact = ContactService.get_contact_by_email(email)
+        if not contact:
+            raise NotFoundError(f"Contact with email {email} not found")
 
         # Initialize email service
         email_service = EmailService(
             token_path="gmail_token.json", credentials_path="gmail_credentials.json"
         )
 
-        # Get contacts
-        contacts = []
-        if contact_ids:
-            contacts = Contact.query.filter(Contact.id.in_(contact_ids)).all()
-            if len(contacts) != len(contact_ids):
-                raise NotFoundError("One or more contacts not found")
-        else:
-            contacts = Contact.query.all()
+        # Get email methods for the contact
+        email_methods = [
+            cm.value for cm in contact.contact_methods if cm.method_type == "email"
+        ]
+
+        if not email_methods:
+            raise BadRequestError("No email addresses found for the contact")
+
+        query = " OR ".join(f"from:{email}" for email in email_methods)
+
+        # Fetch and save emails
+        emails = email_service.fetch_emails(query)
+        email_service.save_emails_to_db(emails, [contact])
+
+        return jsonify(
+            {"message": "Emails synced successfully", "email_count": len(emails)}
+        )
+    except RuntimeError as e:
+        raise BadRequestError(f"Failed to sync emails: {str(e)}")
+    except Exception as e:
+        raise
+
+
+@api.route("/emails/sync", methods=["POST"])
+def sync_all_emails():
+    """Sync emails for all contacts or filtered by search criteria"""
+    try:
+        data = request.json
+        if not isinstance(data, dict):
+            raise BadRequestError("Invalid request data")
+
+        # Allow filtering contacts by name, email, company
+        name = data.get("name")
+        email = data.get("email")
+        company = data.get("company")
+
+        # Get contacts based on filters
+        contacts = ContactService.get_contacts(name=name, email=email, company=company)
+
+        if not contacts:
+            raise NotFoundError("No contacts found matching the criteria")
+
+        # Initialize email service
+        email_service = EmailService(
+            token_path="gmail_token.json", credentials_path="gmail_credentials.json"
+        )
 
         # Build query for email addresses
         email_addresses = []
         for contact in contacts:
             email_methods = [
-                cm for cm in contact.contact_methods if cm.method_type == "email"
+                cm.value for cm in contact.contact_methods if cm.method_type == "email"
             ]
-            email_addresses.extend(cm.value for cm in email_methods)
+            email_addresses.extend(email_methods)
 
         if not email_addresses:
             raise BadRequestError("No email addresses found for the specified contacts")
