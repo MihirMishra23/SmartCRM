@@ -10,21 +10,6 @@ from ..models.contact_method import ContactMethod
 
 class ContactService:
     @staticmethod
-    def get_all_contacts() -> List[Contact]:
-        """Get all contacts from the database"""
-        return Contact.query.all()
-
-    @staticmethod
-    def get_contact_by_public_id(public_id: str) -> Optional[Contact]:
-        """Get a contact by public ID"""
-        return Contact.query.filter_by(public_id=public_id).first()
-
-    @staticmethod
-    def get_contacts_by_public_ids(public_ids: List[str]) -> List[Contact]:
-        """Get contacts by list of public IDs"""
-        return Contact.query.filter(Contact.public_id.in_(public_ids)).all()
-
-    @staticmethod
     def get_contacts(
         name: Optional[str] = None,
         email: Optional[str] = None,
@@ -114,22 +99,6 @@ class ContactService:
             db.session.add(contact)
             db.session.commit()
             return contact
-        except SQLAlchemyError:
-            db.session.rollback()
-            raise
-
-    @staticmethod
-    def delete_contact(public_id: str) -> bool:
-        """Delete a contact by public ID"""
-        contact = Contact.query.filter_by(public_id=public_id).first()
-        if not contact:
-            return False
-
-        try:
-            ContactMethod.query.filter_by(contact_id=contact.id).delete()
-            db.session.delete(contact)
-            db.session.commit()
-            return True
         except SQLAlchemyError:
             db.session.rollback()
             raise
