@@ -1,0 +1,3 @@
+"""
+Inbox Manager backend package.
+"""
