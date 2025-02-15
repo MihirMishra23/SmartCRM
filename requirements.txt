@@ -86,3 +86,9 @@ flask-migrate
 flask-cors
 psycopg2-binary
 alembic
+
+# Test dependencies
+pytest
+pytest-cov
+pytest-flask
+pytest-sqlalchemy
