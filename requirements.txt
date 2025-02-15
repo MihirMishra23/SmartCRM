@@ -81,3 +81,8 @@ urllib3
 wandb
 Werkzeug
 yarl
+flask-sqlalchemy
+flask-migrate
+flask-cors
+psycopg2-binary
+alembic
