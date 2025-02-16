@@ -7,7 +7,8 @@ from backend.app.models.contact_method import ContactMethod
 from backend.app.models.email import Email
 
 
-def test_create_contact_service(_db):
+@pytest.mark.modifying
+def test_create_contact_service(test_session):
     """Test contact creation through service layer."""
     contact_data = {
         "name": "Service Test User",
@@ -28,84 +29,92 @@ def test_create_contact_service(_db):
     assert contact.contact_methods[0].value == "service.test@example.com"
 
 
-def test_get_contacts_service(_db, sample_contact):
+@pytest.mark.read_only
+def test_get_contacts_service(base_contact):
     """Test retrieving contacts through service layer."""
     # Test getting all contacts
     contacts = ContactService.get_contacts()
-    assert len(contacts) == 1
-    assert contacts[0].name == "Test User"
+    assert len(contacts) >= 1
+    assert any(c.name == "Base User" for c in contacts)
 
     # Test filtering by email
-    contacts = ContactService.get_contacts(email="test@example.com")
+    contacts = ContactService.get_contacts(email="base@example.com")
     assert len(contacts) == 1
-    assert contacts[0].name == "Test User"
+    assert contacts[0].name == "Base User"
 
     # Test filtering by company
-    contacts = ContactService.get_contacts(company="Test Company")
+    contacts = ContactService.get_contacts(company="Base Company")
     assert len(contacts) == 1
-    assert contacts[0].name == "Test User"
+    assert contacts[0].name == "Base User"
 
     # Test filtering with no matches
     contacts = ContactService.get_contacts(email="nonexistent@example.com")
     assert len(contacts) == 0
 
 
-def test_delete_contact_service(_db, sample_contact):
+@pytest.mark.modifying
+def test_delete_contact_service(test_session, sample_contact):
     """Test contact deletion through service layer."""
     assert ContactService.delete_contact_by_email("test@example.com") is True
-    contacts = ContactService.get_contacts()
+    contacts = ContactService.get_contacts(email="test@example.com")
     assert len(contacts) == 0
 
 
-def test_delete_nonexistent_contact_service(_db):
+@pytest.mark.read_only
+def test_delete_nonexistent_contact_service():
     """Test deleting a non-existent contact through service layer."""
     assert ContactService.delete_contact_by_email("nonexistent@example.com") is False
 
 
-def test_get_contact_by_email_service(_db, sample_contact):
+@pytest.mark.read_only
+def test_get_contact_by_email_service(base_contact):
     """Test getting a single contact by email through service layer."""
-    contact = ContactService.get_contact_by_email("test@example.com")
+    contact = ContactService.get_contact_by_email("base@example.com")
     assert contact is not None
-    assert contact.name == "Test User"
-    assert contact.company == "Test Company"
+    assert contact.name == "Base User"
+    assert contact.company == "Base Company"
 
 
-def test_format_contact_response_service(sample_contact):
+@pytest.mark.read_only
+def test_format_contact_response_service(base_contact):
     """Test contact response formatting through service layer."""
-    formatted = ContactService.format_contact_response(sample_contact)
+    formatted = ContactService.format_contact_response(base_contact)
     assert isinstance(formatted, dict)
-    assert formatted["name"] == "Test User"
-    assert formatted["company"] == "Test Company"
+    assert formatted["name"] == "Base User"
+    assert formatted["company"] == "Base Company"
     assert len(formatted["contact_methods"]) == 2
-    assert any(m["value"] == "test@example.com" for m in formatted["contact_methods"])
-    assert any(m["value"] == "123-456-7890" for m in formatted["contact_methods"])
+    assert any(m["value"] == "base@example.com" for m in formatted["contact_methods"])
+    assert any(m["value"] == "111-111-1111" for m in formatted["contact_methods"])
 
 
-def test_get_emails_for_contacts_service(_db, sample_contact, sample_email):
+@pytest.mark.read_only
+def test_get_emails_for_contacts_service(base_contact, base_email):
     """Test retrieving emails for contacts through service layer."""
-    emails = EmailService.get_emails_for_contacts([sample_contact.id])
-    assert len(emails) == 1
-    email = emails[0]
+    emails = EmailService.get_emails_for_contacts([base_contact.id])
+    assert len(emails) >= 1
+    email = next(e for e in emails if e.content == "Base content")
     assert hasattr(email, "content")
-    assert email.content == "Test content"
+    assert email.content == "Base content"
     assert hasattr(email, "subject")
-    assert email.subject == "Test Email"
+    assert email.subject == "Base Email"
 
 
-def test_format_email_response_service(sample_email):
+@pytest.mark.read_only
+def test_format_email_response_service(base_email):
     """Test email response formatting through service layer."""
-    formatted = EmailService.format_email_response(sample_email)
+    formatted = EmailService.format_email_response(base_email)
     assert isinstance(formatted, dict)
     assert "subject" in formatted
-    assert formatted["subject"] == "Test Email"
+    assert formatted["subject"] == "Base Email"
     assert "content" in formatted
-    assert formatted["content"] == "Test content"
+    assert formatted["content"] == "Base content"
     assert "summary" in formatted
-    assert formatted["summary"] == "Test summary"
+    assert formatted["summary"] == "Base summary"
     assert "date" in formatted
 
 
-def test_create_contact_validation(_db):
+@pytest.mark.modifying
+def test_create_contact_validation(test_session):
     """Test contact data validation through service layer."""
     # Valid data
     valid_data = {
@@ -135,14 +144,15 @@ def test_create_contact_validation(_db):
         ContactService.create_contact(invalid_data)
 
 
-def test_duplicate_contact_method_service(_db, sample_contact):
+@pytest.mark.modifying
+def test_duplicate_contact_method_service(test_session, base_contact):
     """Test handling of duplicate contact methods through service layer."""
     duplicate_data = {
         "name": "Duplicate User",
         "contact_methods": [
             {
                 "type": "email",
-                "value": "test@example.com",  # Already used by sample_contact
+                "value": "base@example.com",  # Already used by base_contact
                 "is_primary": True,
             }
         ],

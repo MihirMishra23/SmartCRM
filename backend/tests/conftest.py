@@ -8,13 +8,64 @@ from backend.app.models.contact_method import ContactMethod
 from backend.app.models.email import Email
 from backend.app.models.contact_email import ContactEmail
 from backend.app.config import Config
+from sqlalchemy.orm import scoped_session
 
 
-@pytest.fixture
+def create_base_data(session):
+    """Create base test data that will persist throughout the test session."""
+    # Create a base contact
+    base_contact = Contact()
+    base_contact.name = "Base User"
+    base_contact.company = "Base Company"
+    base_contact.position = "Base Position"
+    base_contact.notes = "Base notes"
+    base_contact.warm = True
+    base_contact.reminder = False
+
+    session.add(base_contact)
+    session.commit()
+
+    # Add contact methods
+    base_email = ContactMethod()
+    base_email.contact_id = base_contact.id
+    base_email.method_type = "email"
+    base_email.value = "base@example.com"
+    base_email.is_primary = True
+
+    base_phone = ContactMethod()
+    base_phone.contact_id = base_contact.id
+    base_phone.method_type = "phone"
+    base_phone.value = "111-111-1111"
+    base_phone.is_primary = False
+
+    session.add_all([base_email, base_phone])
+    session.commit()
+
+    # Create a base email
+    base_email_msg = Email()
+    base_email_msg.subject = "Base Email"
+    base_email_msg.content = "Base content"
+    base_email_msg.date = datetime.now()
+    base_email_msg.summary = "Base summary"
+
+    session.add(base_email_msg)
+    session.commit()
+
+    # Link email to contact
+    base_contact_email = ContactEmail()
+    base_contact_email.contact_id = base_contact.id
+    base_contact_email.email_id = base_email_msg.id
+
+    session.add(base_contact_email)
+    session.commit()
+
+    return base_contact, base_email_msg
+
+
+@pytest.fixture(scope="session")
 def app():
-    """Create and configure a test Flask application instance."""
+    """Create and configure a test Flask application instance for the entire test session."""
 
-    # Use a test configuration
     class TestConfig(Config):
         TESTING = True
         SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
@@ -23,40 +74,62 @@ def app():
 
     app = create_app(TestConfig)
 
-    # Create tables in the test database
+    # Create tables and session-level test data
     with app.app_context():
         db.create_all()
+        create_base_data(db.session)
 
     yield app
 
-    # Clean up after test
+    # Clean up after all tests
     with app.app_context():
         db.session.remove()
         db.drop_all()
 
 
-@pytest.fixture
-def client(app):
-    """Create a test client for the app."""
-    return app.test_client()
-
-
-@pytest.fixture
-def runner(app):
-    """Create a test CLI runner for the app."""
-    return app.test_cli_runner()
-
-
-@pytest.fixture
+@pytest.fixture(scope="session")
 def _db(app):
-    """Provide the database instance for testing."""
+    """Provide the database instance for the entire test session."""
     with app.app_context():
         yield db
 
 
-@pytest.fixture
-def sample_contact(_db):
-    """Create a sample contact for testing."""
+@pytest.fixture(scope="session")
+def session_client(app):
+    """Create a test client for read-only operations that persists across the session."""
+    return app.test_client()
+
+
+@pytest.fixture(scope="function")
+def client(app):
+    """Create a test client for modifying operations that's recreated for each test."""
+    return app.test_client()
+
+
+@pytest.fixture(scope="function")
+def test_session(_db):
+    """Create a new database session for a test."""
+    connection = _db.engine.connect()
+    transaction = connection.begin()
+
+    # Create a session-local transaction
+    session = scoped_session(
+        lambda: _db.create_session(options={"bind": connection, "binds": {}})
+    )
+
+    _db.session = session
+
+    yield session
+
+    # Rollback the transaction and remove the session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture(scope="function")
+def sample_contact(test_session):
+    """Create a temporary contact for testing that will be rolled back."""
     contact = Contact()
     contact.name = "Test User"
     contact.company = "Test Company"
@@ -65,8 +138,8 @@ def sample_contact(_db):
     contact.warm = True
     contact.reminder = False
 
-    _db.session.add(contact)
-    _db.session.commit()
+    test_session.add(contact)
+    test_session.commit()
 
     # Add contact methods
     email_method = ContactMethod()
@@ -81,30 +154,46 @@ def sample_contact(_db):
     phone_method.value = "123-456-7890"
     phone_method.is_primary = False
 
-    _db.session.add_all([email_method, phone_method])
-    _db.session.commit()
+    test_session.add_all([email_method, phone_method])
+    test_session.commit()
 
     return contact
 
 
-@pytest.fixture
-def sample_email(_db, sample_contact):
-    """Create a sample email for testing."""
+@pytest.fixture(scope="function")
+def sample_email(test_session, sample_contact):
+    """Create a temporary email for testing that will be rolled back."""
     email = Email()
     email.subject = "Test Email"
     email.content = "Test content"
     email.date = datetime.now()
     email.summary = "Test summary"
 
-    _db.session.add(email)
-    _db.session.commit()
+    test_session.add(email)
+    test_session.commit()
 
     # Link email to contact
     contact_email = ContactEmail()
     contact_email.contact_id = sample_contact.id
     contact_email.email_id = email.id
 
-    _db.session.add(contact_email)
-    _db.session.commit()
+    test_session.add(contact_email)
+    test_session.commit()
 
     return email
+
+
+@pytest.fixture(scope="session")
+def base_contact(app, _db):
+    """Provide access to the base contact that persists across all tests."""
+    with app.app_context():
+        contact = Contact.query.filter_by(name="Base User").first()
+        return contact
+
+
+@pytest.fixture(scope="session")
+def base_email(app, _db):
+    """Provide access to the base email that persists across all tests."""
+    with app.app_context():
+        email = Email.query.filter_by(subject="Base Email").first()
+        return email

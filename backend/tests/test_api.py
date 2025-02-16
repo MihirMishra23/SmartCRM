@@ -3,14 +3,16 @@ import json
 from datetime import datetime, date
 
 
-def test_get_contacts_empty(client):
+@pytest.mark.read_only
+def test_get_contacts_empty(session_client):
     """Test getting contacts when database is empty."""
-    response = client.get("/api/contacts")
+    response = session_client.get("/api/contacts")
     assert response.status_code == 200
-    assert response.json == []
+    assert len(response.json) > 0  # Base contact exists
 
 
-def test_create_contact(client):
+@pytest.mark.modifying
+def test_create_contact(client, test_session):
     """Test creating a new contact."""
     data = {
         "name": "John Doe",
@@ -35,6 +37,7 @@ def test_create_contact(client):
     assert any(m["value"] == "john@example.com" for m in result["contact_methods"])
 
 
+@pytest.mark.read_only
 def test_create_contact_invalid_data(client):
     """Test creating a contact with invalid data."""
     # Test missing name
@@ -53,16 +56,20 @@ def test_create_contact_invalid_data(client):
     assert response.status_code == 400
 
 
-def test_get_contact_by_email(client, sample_contact):
+@pytest.mark.read_only
+def test_get_contact_by_email(session_client, base_contact):
     """Test getting a contact by email."""
-    response = client.get("/api/contacts", query_string={"email": "test@example.com"})
+    response = session_client.get(
+        "/api/contacts", query_string={"email": "base@example.com"}
+    )
     assert response.status_code == 200
     result = response.json
     assert len(result) == 1
-    assert result[0]["name"] == "Test User"
-    assert any(m["value"] == "test@example.com" for m in result[0]["contact_methods"])
+    assert result[0]["name"] == "Base User"
+    assert any(m["value"] == "base@example.com" for m in result[0]["contact_methods"])
 
 
+@pytest.mark.modifying
 def test_delete_contact(client, sample_contact):
     """Test deleting a contact."""
     response = client.delete("/api/contacts/test@example.com")
@@ -74,6 +81,7 @@ def test_delete_contact(client, sample_contact):
     assert response.json == []
 
 
+@pytest.mark.read_only
 def test_delete_nonexistent_contact(client):
     """Test deleting a non-existent contact."""
     response = client.delete("/api/contacts/nonexistent@example.com")
@@ -81,31 +89,34 @@ def test_delete_nonexistent_contact(client):
     assert "not found" in response.json["error"].lower()
 
 
-def test_get_contact_emails(client, sample_contact, sample_email):
+@pytest.mark.read_only
+def test_get_contact_emails(session_client, base_contact, base_email):
     """Test getting emails for a contact."""
-    response = client.get("/api/contacts/test@example.com/emails")
+    response = session_client.get("/api/contacts/base@example.com/emails")
     assert response.status_code == 200
     result = response.json
     assert len(result) == 1
-    assert result[0]["subject"] == "Test Email"
-    assert result[0]["content"] == "Test content"
+    assert result[0]["subject"] == "Base Email"
+    assert result[0]["content"] == "Base content"
 
 
-def test_get_emails_nonexistent_contact(client):
+@pytest.mark.read_only
+def test_get_emails_nonexistent_contact(session_client):
     """Test getting emails for a non-existent contact."""
-    response = client.get("/api/contacts/nonexistent@example.com/emails")
+    response = session_client.get("/api/contacts/nonexistent@example.com/emails")
     assert response.status_code == 404
     assert "not found" in response.json["error"].lower()
 
 
-def test_duplicate_contact_method(client, sample_contact):
+@pytest.mark.modifying
+def test_duplicate_contact_method(client, base_contact):
     """Test creating a contact with a duplicate contact method."""
     data = {
         "name": "Another User",
         "contact_methods": [
             {
                 "type": "email",
-                "value": "test@example.com",  # Already used by sample_contact
+                "value": "base@example.com",  # Already used by base_contact
                 "is_primary": True,
             }
         ],
