@@ -1,6 +1,6 @@
 # Testing Guide
 
-This guide covers the testing strategy and practices for the Inbox Manager application.
+This guide covers the testing strategy and practices for the SmartCRM application.
 
 ## Testing Stack
 

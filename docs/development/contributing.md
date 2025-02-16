@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thank you for considering contributing to Inbox Manager! This document provides guidelines and instructions for contributing to the project.
+Thank you for considering contributing to SmartCRM! This document provides guidelines and instructions for contributing to the project.
 
 ## Getting Started
 
@@ -8,8 +8,8 @@ Thank you for considering contributing to Inbox Manager! This document provides 
    - Click the "Fork" button on GitHub
    - Clone your fork locally:
      ```bash
-     git clone https://github.com/yourusername/inbox-manager.git
-     cd inbox-manager
+     git clone https://github.com/yourusername/SmartCRM.git
+     cd SmartCRM
      ```
 
 2. **Set Up Development Environment**

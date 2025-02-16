@@ -1,10 +1,10 @@
-# Inbox Manager Documentation
+# SmartCRM Documentation
 
-Welcome to the Inbox Manager documentation. This application helps you manage professional contacts and email communications efficiently.
+Welcome to the SmartCRM documentation. This application helps you manage professional contacts and email communications efficiently.
 
 ## Overview
 
-Inbox Manager is a Flask-based application that provides:
+SmartCRM is a Flask-based application that provides:
 
 - Contact management with automatic information enrichment
 - Email synchronization with Gmail
@@ -21,7 +21,7 @@ Inbox Manager is a Flask-based application that provides:
 
 ```mermaid
 graph TD
-    A[Inbox Manager] --> B[Backend]
+    A[SmartCRM] --> B[Backend]
     A --> C[Frontend]
     B --> D[API Routes]
     B --> E[Services]

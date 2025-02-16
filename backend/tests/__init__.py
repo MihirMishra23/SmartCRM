@@ -1,3 +1,3 @@
 """
-Test package for the Inbox Manager backend.
+Test package for the SmartCRM backend.
 """

@@ -1,3 +1,3 @@
 """
-Inbox Manager backend package.
+SmartCRM backend package.
 """

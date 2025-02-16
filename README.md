@@ -1,11 +1,11 @@
-# Inbox Manager
+# SmartCRM
 
 A Flask-based application for managing professional contacts and email communications.
 
 ## Project Structure
 
 ```
-inbox-manager/
+SmartCRM/
 │── backend/                 # Backend Flask application
 │   ├── app/                # Application package
 │   │   ├── models/        # Database models

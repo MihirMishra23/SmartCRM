@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide will help you set up Inbox Manager on your local machine.
+This guide will help you set up SmartCRM on your local machine.
 
 ## Prerequisites
 
@@ -14,8 +14,8 @@ This guide will help you set up Inbox Manager on your local machine.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/inbox-manager.git
-   cd inbox-manager
+   git clone https://github.com/yourusername/SmartCRM.git
+   cd SmartCRM
    ```
 
 2. Create and activate a virtual environment:

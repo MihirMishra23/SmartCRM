@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document provides a detailed overview of the Inbox Manager application architecture.
+This document provides a detailed overview of the SmartCRM application architecture.
 
 ## System Components
 

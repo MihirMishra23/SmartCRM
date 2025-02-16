@@ -1,6 +1,6 @@
 # API Routes
 
-This section documents all available API endpoints in the Inbox Manager application.
+This section documents all available API endpoints in the SmartCRM application.
 
 ## Contact Management
 
