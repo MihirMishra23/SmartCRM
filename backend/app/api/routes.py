@@ -51,25 +51,48 @@ class ConflictError(APIError):
         super().__init__(message, 409)
 
 
+class APIResponse:
+    """Helper class to standardize API responses"""
+
+    @staticmethod
+    def success(data=None, message=None, meta=None):
+        response = {
+            "status": "success",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        if message:
+            response["message"] = message
+        if data is not None:
+            response["data"] = data
+        if meta:
+            response["meta"] = meta
+        return jsonify(response)
+
+    @staticmethod
+    def error(message, status_code, details=None):
+        response = {
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": {"message": message, "code": status_code},
+        }
+        if details:
+            response["error"]["details"] = details
+        return jsonify(response), status_code
+
+
 @api.errorhandler(APIError)
 def handle_api_error(error):
-    response = jsonify({"error": error.message})
-    response.status_code = error.status_code
-    return response
+    return APIResponse.error(error.message, error.status_code)
 
 
 @api.errorhandler(SQLAlchemyError)
 def handle_db_error(error):
-    response = jsonify({"error": "Database error occurred", "details": str(error)})
-    response.status_code = 500
-    return response
+    return APIResponse.error("Database error occurred", 500, str(error))
 
 
 @api.errorhandler(Exception)
 def handle_generic_error(error):
-    response = jsonify({"error": "An unexpected error occurred", "details": str(error)})
-    response.status_code = 500
-    return response
+    return APIResponse.error("An unexpected error occurred", 500, str(error))
 
 
 def validate_contact_data(data):
@@ -91,13 +114,15 @@ def validate_contact_data(data):
 def get_contacts():
     """Get all contacts with optional filtering"""
     try:
-        # Allow filtering by name, email, company
         name = request.args.get("name")
         email = request.args.get("email")
         company = request.args.get("company")
 
         contacts = ContactService.get_contacts(name=name, email=email, company=company)
-        return jsonify([ContactService.format_contact_response(c) for c in contacts])
+        return APIResponse.success(
+            data=[ContactService.format_contact_response(c) for c in contacts],
+            meta={"total": len(contacts)},
+        )
     except Exception as e:
         raise BadRequestError(f"Failed to fetch contacts: {str(e)}")
 
@@ -109,13 +134,17 @@ def create_contact():
     if not isinstance(data, dict):
         raise BadRequestError("Invalid request data")
 
-    # Validate input data
     validate_contact_data(data)
 
     try:
         contact = ContactService.create_contact(data)
-        # Return the created contact data instead of just ID
-        return jsonify(ContactService.format_contact_response(contact)), 201
+        return (
+            APIResponse.success(
+                data=ContactService.format_contact_response(contact),
+                message="Contact created successfully",
+            ),
+            201,
+        )
     except ValueError as e:
         if "already associated with another contact" in str(e):
             raise ConflictError(str(e))
@@ -130,7 +159,7 @@ def delete_contact(email: str):
     try:
         if not ContactService.delete_contact_by_email(email):
             raise NotFoundError(f"Contact with email {email} not found")
-        return jsonify({"message": "Contact deleted successfully"})
+        return APIResponse.success(message="Contact deleted successfully")
     except SQLAlchemyError as e:
         raise
 
@@ -144,7 +173,10 @@ def get_contact_emails(email: str):
             raise NotFoundError(f"Contact with email {email} not found")
 
         emails = EmailService.get_emails_for_contacts([contact.id])
-        return jsonify([EmailService.format_email_response(e) for e in emails])
+        return APIResponse.success(
+            data=[EmailService.format_email_response(e) for e in emails],
+            meta={"total": len(emails)},
+        )
     except Exception as e:
         raise BadRequestError(f"Failed to fetch emails: {str(e)}")
 
@@ -157,12 +189,10 @@ def sync_contact_emails(email: str):
         if not contact:
             raise NotFoundError(f"Contact with email {email} not found")
 
-        # Initialize email service
         email_service = EmailService(
             token_path="gmail_token.json", credentials_path="gmail_credentials.json"
         )
 
-        # Get email methods for the contact
         email_methods = [
             cm.value for cm in contact.contact_methods if cm.method_type == "email"
         ]
@@ -172,12 +202,11 @@ def sync_contact_emails(email: str):
 
         query = " OR ".join(f"from:{email}" for email in email_methods)
 
-        # Fetch and save emails
         emails = email_service.fetch_emails(query)
         email_service.save_emails_to_db(emails, [contact])
 
-        return jsonify(
-            {"message": "Emails synced successfully", "email_count": len(emails)}
+        return APIResponse.success(
+            message="Emails synced successfully", meta={"email_count": len(emails)}
         )
     except RuntimeError as e:
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
@@ -193,23 +222,19 @@ def sync_all_emails():
         if not isinstance(data, dict):
             raise BadRequestError("Invalid request data")
 
-        # Allow filtering contacts by name, email, company
         name = data.get("name")
         email = data.get("email")
         company = data.get("company")
 
-        # Get contacts based on filters
         contacts = ContactService.get_contacts(name=name, email=email, company=company)
 
         if not contacts:
             raise NotFoundError("No contacts found matching the criteria")
 
-        # Initialize email service
         email_service = EmailService(
             token_path="gmail_token.json", credentials_path="gmail_credentials.json"
         )
 
-        # Build query for email addresses
         email_addresses = []
         for contact in contacts:
             email_methods = [
@@ -222,12 +247,12 @@ def sync_all_emails():
 
         query = " OR ".join(f"from:{email}" for email in email_addresses)
 
-        # Fetch and save emails
         emails = email_service.fetch_emails(query)
         email_service.save_emails_to_db(emails, contacts)
 
-        return jsonify(
-            {"message": "Emails synced successfully", "email_count": len(emails)}
+        return APIResponse.success(
+            message="Emails synced successfully",
+            meta={"email_count": len(emails), "contact_count": len(contacts)},
         )
     except RuntimeError as e:
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
