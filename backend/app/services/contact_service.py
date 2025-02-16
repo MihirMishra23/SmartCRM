@@ -15,7 +15,16 @@ class ContactService:
         email: Optional[str] = None,
         company: Optional[str] = None,
     ) -> List[Contact]:
-        """Get contacts with optional filtering"""
+        """Get contacts with optional filtering.
+
+        Args:
+            name: Filter by contact name
+            email: Filter by email address
+            company: Filter by company name
+
+        Returns:
+            List of Contact objects matching the filters
+        """
         query = Contact.query
 
         if name:
@@ -32,7 +41,14 @@ class ContactService:
 
     @staticmethod
     def get_contact_by_email(email: str) -> Optional[Contact]:
-        """Get a contact by their email address"""
+        """Get a contact by their email address.
+
+        Args:
+            email: Email address to search for
+
+        Returns:
+            Contact object if found, None otherwise
+        """
         return (
             Contact.query.join(Contact.contact_methods)
             .filter(ContactMethod.method_type == "email", ContactMethod.value == email)
@@ -41,7 +57,17 @@ class ContactService:
 
     @staticmethod
     def delete_contact_by_email(email: str) -> bool:
-        """Delete a contact by their email address"""
+        """Delete a contact by their email address.
+
+        Args:
+            email: Email address of the contact to delete
+
+        Returns:
+            True if contact was deleted, False if not found
+
+        Raises:
+            SQLAlchemyError: If database operation fails
+        """
         contact = ContactService.get_contact_by_email(email)
         if not contact:
             return False
@@ -127,34 +153,56 @@ class ContactService:
 
     @staticmethod
     def format_contact_response(contact: Contact) -> dict:
-        """Format a contact object into API response format"""
-        email_methods = [
-            cm for cm in contact.contact_methods if cm.method_type == "email"
-        ]
-        primary_email = next((cm.value for cm in email_methods if cm.is_primary), None)
-        if not primary_email and email_methods:
-            primary_email = email_methods[0].value
+        """Format a contact object into API response format.
 
-        return {
-            "name": contact.name,
-            "email": primary_email,  # Use primary email as identifier
-            "company": contact.company,
-            "position": contact.position,
-            "last_contacted": (
-                contact.last_contacted.isoformat() if contact.last_contacted else None
-            ),
-            "follow_up_date": (
-                contact.follow_up_date.isoformat() if contact.follow_up_date else None
-            ),
-            "warm": contact.warm,
-            "reminder": contact.reminder,
-            "notes": contact.notes,
-            "contact_methods": [
-                {
-                    "type": cm.method_type,
-                    "value": cm.value,
-                    "is_primary": cm.is_primary,
-                }
-                for cm in contact.contact_methods
-            ],
-        }
+        Args:
+            contact: Contact object to format
+
+        Returns:
+            Dictionary containing formatted contact data
+
+        Raises:
+            Exception: If object is detached from session
+        """
+        try:
+            email_methods = [
+                cm for cm in contact.contact_methods if cm.method_type == "email"
+            ]
+            primary_email = next(
+                (cm.value for cm in email_methods if cm.is_primary), None
+            )
+            if not primary_email and email_methods:
+                primary_email = email_methods[0].value
+
+            return {
+                "name": contact.name,
+                "email": primary_email,
+                "company": contact.company,
+                "position": contact.position,
+                "last_contacted": (
+                    contact.last_contacted.isoformat()
+                    if contact.last_contacted
+                    else None
+                ),
+                "follow_up_date": (
+                    contact.follow_up_date.isoformat()
+                    if contact.follow_up_date
+                    else None
+                ),
+                "warm": contact.warm,
+                "reminder": contact.reminder,
+                "notes": contact.notes,
+                "contact_methods": [
+                    {
+                        "type": cm.method_type,
+                        "value": cm.value,
+                        "is_primary": cm.is_primary,
+                    }
+                    for cm in contact.contact_methods
+                ],
+            }
+        except Exception as e:
+            # If the object is detached, try to refresh it
+            db.session.add(contact)
+            db.session.refresh(contact)
+            return ContactService.format_contact_response(contact)
