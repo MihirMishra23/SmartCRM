@@ -8,7 +8,7 @@ from backend.app.models.contact_method import ContactMethod
 from backend.app.models.email import Email
 from backend.app.models.contact_email import ContactEmail
 from backend.app.config import Config
-from sqlalchemy.orm import scoped_session
+from sqlalchemy.orm import scoped_session, sessionmaker
 
 
 def create_base_data(session):
@@ -113,9 +113,8 @@ def test_session(_db):
     transaction = connection.begin()
 
     # Create a session-local transaction
-    session = scoped_session(
-        lambda: _db.create_session(options={"bind": connection, "binds": {}})
-    )
+    session_factory = sessionmaker(bind=connection)
+    session = scoped_session(session_factory)
 
     _db.session = session
 

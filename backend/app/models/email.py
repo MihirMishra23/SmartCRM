@@ -6,6 +6,7 @@ class Email(db.Model):
     __tablename__ = "emails"
 
     id = db.Column(db.Integer, primary_key=True)
+    subject = db.Column(db.Text, nullable=False)
     date = db.Column(db.Date, nullable=False)
     summary = db.Column(db.Text)
     content = db.Column(db.Text, nullable=False)
