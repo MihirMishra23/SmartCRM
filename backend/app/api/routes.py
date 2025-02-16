@@ -284,6 +284,7 @@ def delete_contact(email: str):
 
     Raises:
         NotFoundError: If the contact doesn't exist
+        SQLAlchemyError: If database operation fails
     """
     try:
         if not ContactService.delete_contact_by_email(email):
@@ -316,11 +317,11 @@ def get_contact_emails(email: str):
             raise NotFoundError(f"Contact with email {email} not found")
 
         emails = EmailService.get_emails_for_contacts([contact.id])
-        return APIResponse.success(
-            data=[EmailService.format_email_response(e) for e in emails],
-            meta={"total": len(emails)},
-        )
+        formatted_emails = [EmailService.format_email_response(e) for e in emails]
+        return APIResponse.success(data=formatted_emails, meta={"total": len(emails)})
     except Exception as e:
+        if isinstance(e, NotFoundError):
+            raise
         raise BadRequestError(f"Failed to fetch emails: {str(e)}")
 
 
