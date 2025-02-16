@@ -88,13 +88,16 @@ def test_get_contact_by_email(session_client, base_contact):
 @pytest.mark.modifying
 def test_delete_contact(client, sample_contact):
     """Test deleting a contact."""
+    # Test deletion
     response = client.delete("/api/contacts/test@example.com")
     assert response.status_code == 200
+    assert response.json["status"] == "success"
+    assert "Contact deleted successfully" in response.json["message"]
 
     # Verify contact is deleted
-    response = client.get("/api/contacts", query_string={"email": "test@example.com"})
+    response = client.get("/api/contacts/lookup/email/test@example.com")
     assert response.status_code == 200
-    assert response.json == []
+    assert response.json["data"] == []
 
 
 @pytest.mark.read_only
@@ -102,7 +105,8 @@ def test_delete_nonexistent_contact(client):
     """Test deleting a non-existent contact."""
     response = client.delete("/api/contacts/nonexistent@example.com")
     assert response.status_code == 404
-    assert "not found" in response.json["error"].lower()
+    assert response.json["status"] == "error"
+    assert "not found" in response.json["error"]["message"].lower()
 
 
 @pytest.mark.read_only
