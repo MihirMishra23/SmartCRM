@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 from ..models.contact import Contact
 from ..models.contact_method import ContactMethod
 from ..models.email import Email
@@ -6,57 +6,102 @@ from ..models.base import db
 from ..services.email_service import EmailService
 from ..services.contact_service import ContactService
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Union, Tuple, TypedDict
 from functools import wraps
 from sqlalchemy.exc import SQLAlchemyError
 import traceback
+from flasgger import swag_from
+from .swagger_docs import (
+    GET_CONTACTS_DOCS,
+    CREATE_CONTACT_DOCS,
+    DELETE_CONTACT_DOCS,
+    GET_CONTACT_EMAILS_DOCS,
+    SYNC_CONTACT_EMAILS_DOCS,
+    SYNC_ALL_EMAILS_DOCS,
+)
 
 api = Blueprint("api", __name__)
 
 
 class APIError(Exception):
-    """Base class for API errors"""
+    """Base class for API errors.
 
-    def __init__(self, message, status_code):
+    Attributes:
+        message (str): Human readable error message
+        status_code (int): HTTP status code for the error
+    """
+
+    def __init__(self, message: str, status_code: int):
         super().__init__()
         self.message = message
         self.status_code = status_code
 
 
 class BadRequestError(APIError):
-    """400 Bad Request"""
+    """400 Bad Request - Client provided invalid data."""
 
-    def __init__(self, message="Bad Request"):
+    def __init__(self, message: str = "Bad Request"):
         super().__init__(message, 400)
 
 
 class ForbiddenError(APIError):
-    """403 Forbidden"""
+    """403 Forbidden - Client lacks required permissions."""
 
-    def __init__(self, message="Forbidden"):
+    def __init__(self, message: str = "Forbidden"):
         super().__init__(message, 403)
 
 
 class NotFoundError(APIError):
-    """404 Not Found"""
+    """404 Not Found - Requested resource does not exist."""
 
-    def __init__(self, message="Resource not found"):
+    def __init__(self, message: str = "Resource not found"):
         super().__init__(message, 404)
 
 
 class ConflictError(APIError):
-    """409 Conflict"""
+    """409 Conflict - Resource already exists or state conflict."""
 
-    def __init__(self, message="Resource already exists"):
+    def __init__(self, message: str = "Resource already exists"):
         super().__init__(message, 409)
 
 
+class MetaData(TypedDict, total=False):
+    """Type definition for response metadata.
+
+    All fields are optional and can be None. This allows for flexible
+    metadata structures across different endpoint responses.
+    """
+
+    page: Optional[int]
+    per_page: Optional[int]
+    total: Optional[int]
+    email_count: Optional[int]
+    contact_count: Optional[int]
+    # Add any other potential meta fields here
+
+
 class APIResponse:
-    """Helper class to standardize API responses"""
+    """Helper class to standardize API responses.
+
+    This class provides static methods to create consistent JSON responses
+    for both successful operations and errors.
+    """
 
     @staticmethod
-    def success(data=None, message=None, meta=None):
-        response = {
+    def success(
+        data: Any = None, message: Optional[str] = None, meta: Optional[MetaData] = None
+    ) -> Response:
+        """Create a success response.
+
+        Args:
+            data: The response payload
+            message: Optional success message
+            meta: Optional metadata about the response
+
+        Returns:
+            Flask Response object containing the JSON response
+        """
+        response: Dict[str, Any] = {
             "status": "success",
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -69,7 +114,19 @@ class APIResponse:
         return jsonify(response)
 
     @staticmethod
-    def error(message, status_code, details=None):
+    def error(
+        message: str, status_code: int, details: Optional[str] = None
+    ) -> Tuple[Response, int]:
+        """Create an error response.
+
+        Args:
+            message: Error message describing what went wrong
+            status_code: HTTP status code
+            details: Optional additional error details
+
+        Returns:
+            Tuple of (Flask Response object, status_code)
+        """
         response = {
             "status": "error",
             "timestamp": datetime.utcnow().isoformat(),
@@ -95,7 +152,15 @@ def handle_generic_error(error):
     return APIResponse.error("An unexpected error occurred", 500, str(error))
 
 
-def validate_contact_data(data):
+def validate_contact_data(data: Dict) -> None:
+    """Validate contact data before creation/update.
+
+    Args:
+        data: Dictionary containing contact data
+
+    Raises:
+        BadRequestError: If required fields are missing or invalid
+    """
     if not data:
         raise BadRequestError("No data provided")
 
@@ -111,25 +176,49 @@ def validate_contact_data(data):
 
 
 @api.route("/contacts", methods=["GET"])
+@swag_from(GET_CONTACTS_DOCS)
 def get_contacts():
-    """Get all contacts with optional filtering"""
-    try:
-        name = request.args.get("name")
-        email = request.args.get("email")
-        company = request.args.get("company")
+    """
+    Retrieve a paginated list of all contacts.
 
-        contacts = ContactService.get_contacts(name=name, email=email, company=company)
+    Returns:
+        APIResponse: JSON response containing:
+            - data: List of Contact objects
+            - meta: Pagination metadata
+    """
+    try:
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+
+        contacts = Contact.query.paginate(page=page, per_page=per_page, error_out=False)
+
         return APIResponse.success(
-            data=[ContactService.format_contact_response(c) for c in contacts],
-            meta={"total": len(contacts)},
+            data=[contact.to_dict() for contact in contacts.items],
+            meta={
+                "page": contacts.page,
+                "per_page": contacts.per_page,
+                "total": contacts.total,
+            },
         )
     except Exception as e:
-        raise BadRequestError(f"Failed to fetch contacts: {str(e)}")
+        return APIResponse.error(str(e), 500)
 
 
 @api.route("/contacts", methods=["POST"])
+@swag_from(CREATE_CONTACT_DOCS)
 def create_contact():
-    """Create a new contact"""
+    """Create a new contact with the provided information.
+
+    The request must include at least a name. Contact methods (email, phone, etc.)
+    can be provided optionally.
+
+    Returns:
+        APIResponse: JSON response containing the created contact
+
+    Raises:
+        BadRequestError: If the request data is invalid
+        ConflictError: If a contact with the same email already exists
+    """
     data = request.json
     if not isinstance(data, dict):
         raise BadRequestError("Invalid request data")
@@ -154,8 +243,19 @@ def create_contact():
 
 
 @api.route("/contacts/<string:email>", methods=["DELETE"])
+@swag_from(DELETE_CONTACT_DOCS)
 def delete_contact(email: str):
-    """Delete a contact by their email address"""
+    """Delete a contact by their email address.
+
+    Args:
+        email: Email address of the contact to delete
+
+    Returns:
+        APIResponse: Success message if deleted
+
+    Raises:
+        NotFoundError: If the contact doesn't exist
+    """
     try:
         if not ContactService.delete_contact_by_email(email):
             raise NotFoundError(f"Contact with email {email} not found")
@@ -165,8 +265,22 @@ def delete_contact(email: str):
 
 
 @api.route("/contacts/<string:email>/emails", methods=["GET"])
+@swag_from(GET_CONTACT_EMAILS_DOCS)
 def get_contact_emails(email: str):
-    """Get emails for a specific contact"""
+    """Get all emails associated with a specific contact.
+
+    Args:
+        email: Email address of the contact
+
+    Returns:
+        APIResponse: JSON response containing:
+            - data: List of Email objects
+            - meta: Email count metadata
+
+    Raises:
+        NotFoundError: If the contact doesn't exist
+        BadRequestError: If email fetching fails
+    """
     try:
         contact = ContactService.get_contact_by_email(email)
         if not contact:
@@ -182,8 +296,26 @@ def get_contact_emails(email: str):
 
 
 @api.route("/contacts/<string:email>/sync-emails", methods=["POST"])
+@swag_from(SYNC_CONTACT_EMAILS_DOCS)
 def sync_contact_emails(email: str):
-    """Sync emails for a specific contact"""
+    """Synchronize emails for a specific contact from Gmail.
+
+    This endpoint will:
+    1. Verify the contact exists
+    2. Get all email addresses associated with the contact
+    3. Fetch emails from Gmail for these addresses
+    4. Save the emails to the database
+
+    Args:
+        email: Email address of the contact
+
+    Returns:
+        APIResponse: Success message with email count
+
+    Raises:
+        NotFoundError: If the contact doesn't exist
+        BadRequestError: If sync operation fails
+    """
     try:
         contact = ContactService.get_contact_by_email(email)
         if not contact:
@@ -215,8 +347,28 @@ def sync_contact_emails(email: str):
 
 
 @api.route("/emails/sync", methods=["POST"])
+@swag_from(SYNC_ALL_EMAILS_DOCS)
 def sync_all_emails():
-    """Sync emails for all contacts or filtered by search criteria"""
+    """Synchronize emails for all contacts or filtered by search criteria.
+
+    This endpoint will:
+    1. Find contacts matching the search criteria (if provided)
+    2. Get all email addresses for these contacts
+    3. Fetch emails from Gmail for these addresses
+    4. Save the emails to the database
+
+    The request body can include optional filters:
+    - name: Filter contacts by name
+    - email: Filter contacts by email
+    - company: Filter contacts by company
+
+    Returns:
+        APIResponse: Success message with email and contact counts
+
+    Raises:
+        NotFoundError: If no contacts match the criteria
+        BadRequestError: If sync operation fails
+    """
     try:
         data = request.json
         if not isinstance(data, dict):
