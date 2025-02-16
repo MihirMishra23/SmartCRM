@@ -59,11 +59,9 @@ def test_create_contact_invalid_data(client):
 @pytest.mark.read_only
 def test_get_contact_by_email(session_client, base_contact):
     """Test getting a contact by email."""
-    response = session_client.get(
-        "/api/contacts", query_string={"email": "base@example.com"}
-    )
+    response = session_client.get(f"/api/contacts/lookup/email/base@example.com")
     assert response.status_code == 200
-    result = response.json
+    result = response.json["data"]
     assert len(result) == 1
     assert result[0]["name"] == "Base User"
     assert any(m["value"] == "base@example.com" for m in result[0]["contact_methods"])

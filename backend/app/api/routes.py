@@ -18,6 +18,7 @@ from .swagger_docs import (
     GET_CONTACT_EMAILS_DOCS,
     SYNC_CONTACT_EMAILS_DOCS,
     SYNC_ALL_EMAILS_DOCS,
+    GET_CONTACT_BY_EMAIL_DOCS,
 )
 
 api = Blueprint("api", __name__)
@@ -186,22 +187,46 @@ def get_contacts():
             - data: List of Contact objects
             - meta: Pagination metadata
     """
-    try:
-        page = request.args.get("page", 1, type=int)
-        per_page = request.args.get("per_page", 20, type=int)
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
 
-        contacts = Contact.query.paginate(page=page, per_page=per_page, error_out=False)
+    pagination = Contact.query.paginate(page=page, per_page=per_page, error_out=False)
 
-        return APIResponse.success(
-            data=[contact.to_dict() for contact in contacts.items],
-            meta={
-                "page": contacts.page,
-                "per_page": contacts.per_page,
-                "total": contacts.total,
-            },
-        )
-    except Exception as e:
-        return APIResponse.error(str(e), 500)
+    return APIResponse.success(
+        data=[
+            ContactService.format_contact_response(contact)
+            for contact in pagination.items
+        ],
+        meta={
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+        },
+    )
+
+
+@api.route("/contacts/lookup/email/<string:email>", methods=["GET"])
+@swag_from(GET_CONTACT_BY_EMAIL_DOCS)
+def get_contact_by_email(email: str):
+    """
+    Lookup a contact by their email address.
+
+    Args:
+        email: Email address to search for
+
+    Returns:
+        APIResponse: JSON response containing the matching contact(s)
+    """
+    contacts = (
+        Contact.query.join(Contact.contact_methods)
+        .filter(ContactMethod.method_type == "email", ContactMethod.value == email)
+        .all()
+    )
+
+    return APIResponse.success(
+        data=[ContactService.format_contact_response(contact) for contact in contacts],
+        meta={"total": len(contacts)},
+    )
 
 
 @api.route("/contacts", methods=["POST"])

@@ -129,3 +129,24 @@ SYNC_ALL_EMAILS_DOCS = SwaggerTemplate(
         ),
     },
 ).to_dict()
+
+GET_CONTACT_BY_EMAIL_DOCS = SwaggerTemplate(
+    summary="Get contact by email",
+    description="Lookup a contact by their email address",
+    parameters=[
+        SwaggerParameter(
+            name="email",
+            in_="path",
+            type="string",
+            description="Email address to search for",
+            required=True,
+        )
+    ],
+    responses={
+        "200": create_list_response(CONTACT_SCHEMA),
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
+    },
+).to_dict()
