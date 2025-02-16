@@ -57,18 +57,40 @@ class ContactService:
 
     @staticmethod
     def create_contact(contact_data: dict) -> Contact:
-        """Create a new contact"""
-        # First check if any of the contact methods already exist
-        if "contact_methods" in contact_data:
-            for method in contact_data["contact_methods"]:
-                existing_method = ContactMethod.query.filter_by(
-                    method_type=method["type"], value=method["value"]
-                ).first()
-                if existing_method:
-                    raise ValueError(
-                        f"Contact method {method['type']}:{method['value']} is already associated with another contact"
-                    )
+        """Create a new contact.
 
+        Args:
+            contact_data: Dictionary containing contact information
+
+        Raises:
+            ValueError: If required fields are missing or if a contact method is already associated with another contact
+        """
+        # Validate required fields
+        if not isinstance(contact_data, dict):
+            raise ValueError("Contact data must be a dictionary")
+        if "name" not in contact_data:
+            raise ValueError("Name is required")
+        if not contact_data.get("contact_methods"):
+            raise ValueError("At least one contact method is required")
+
+        # Validate and check existing contact methods
+        for method in contact_data["contact_methods"]:
+            # Basic structure validation
+            if not isinstance(method, dict):
+                raise ValueError("Contact method must be a dictionary")
+            if "type" not in method or "value" not in method:
+                raise ValueError("Contact method must have type and value")
+
+            # Check for existing methods
+            existing_method = ContactMethod.query.filter_by(
+                method_type=method["type"], value=method["value"]
+            ).first()
+            if existing_method:
+                raise ValueError(
+                    f"Contact method {method['type']}:{method['value']} is already associated with another contact"
+                )
+
+        # Create contact
         contact = Contact()
         contact.name = contact_data["name"]
         contact.company = contact_data.get("company")
@@ -88,7 +110,7 @@ class ContactService:
         contact.notes = contact_data.get("notes")
 
         # Add contact methods
-        for method in contact_data.get("contact_methods", []):
+        for method in contact_data["contact_methods"]:
             contact_method = ContactMethod()
             contact_method.method_type = method["type"]
             contact_method.value = method["value"]

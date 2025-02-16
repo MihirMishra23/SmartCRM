@@ -165,15 +165,19 @@ def validate_contact_data(data: Dict) -> None:
     if not data:
         raise BadRequestError("No data provided")
 
-    required_fields = ["name"]
+    required_fields = ["name", "contact_methods"]
     missing_fields = [field for field in required_fields if field not in data]
     if missing_fields:
         raise BadRequestError(f"Missing required fields: {', '.join(missing_fields)}")
 
-    if "contact_methods" in data:
-        for method in data["contact_methods"]:
-            if "type" not in method or "value" not in method:
-                raise BadRequestError("Contact methods must include type and value")
+    if not data.get("contact_methods"):
+        raise BadRequestError("Contact methods cannot be empty")
+
+    for method in data["contact_methods"]:
+        if "type" not in method or "value" not in method:
+            raise BadRequestError("Contact methods must include type and value")
+        if method["type"] not in ["email", "phone", "linkedin"]:
+            raise BadRequestError("Invalid contact method type")
 
 
 @api.route("/contacts", methods=["GET"])

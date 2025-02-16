@@ -30,7 +30,7 @@ def test_create_contact(client, test_session):
     response = client.post("/api/contacts", json=data, content_type="application/json")
 
     assert response.status_code == 201
-    result = response.json
+    result = response.json["data"]  # Access the data field from the response
     assert result["name"] == "John Doe"
     assert result["company"] == "Test Corp"
     assert len(result["contact_methods"]) == 2
@@ -48,12 +48,30 @@ def test_create_contact_invalid_data(client):
     }
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
-    assert "Missing required fields" in response.json["error"]
+    assert "Missing required fields: name" in response.json["error"]["message"]
 
     # Test missing contact methods
     data = {"name": "Test User"}
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
+    assert (
+        "Missing required fields: contact_methods" in response.json["error"]["message"]
+    )
+
+    # Test empty contact methods
+    data = {"name": "Test User", "contact_methods": []}
+    response = client.post("/api/contacts", json=data, content_type="application/json")
+    assert response.status_code == 400
+    assert "Contact methods cannot be empty" in response.json["error"]["message"]
+
+    # Test invalid contact method type
+    data = {
+        "name": "Test User",
+        "contact_methods": [{"type": "invalid", "value": "test@example.com"}],
+    }
+    response = client.post("/api/contacts", json=data, content_type="application/json")
+    assert response.status_code == 400
+    assert "Invalid contact method type" in response.json["error"]["message"]
 
 
 @pytest.mark.read_only
