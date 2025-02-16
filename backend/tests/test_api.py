@@ -8,7 +8,8 @@ def test_get_contacts_empty(session_client):
     """Test getting contacts when database is empty."""
     response = session_client.get("/api/contacts")
     assert response.status_code == 200
-    assert len(response.json) > 0  # Base contact exists
+    assert response.json["status"] == "success"
+    assert len(response.json["data"]) > 0  # Base contact exists
 
 
 @pytest.mark.modifying
@@ -30,7 +31,8 @@ def test_create_contact(client, test_session):
     response = client.post("/api/contacts", json=data, content_type="application/json")
 
     assert response.status_code == 201
-    result = response.json["data"]  # Access the data field from the response
+    assert response.json["status"] == "success"
+    result = response.json["data"]
     assert result["name"] == "John Doe"
     assert result["company"] == "Test Corp"
     assert len(result["contact_methods"]) == 2
@@ -48,12 +50,14 @@ def test_create_contact_invalid_data(client):
     }
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
+    assert response.json["status"] == "error"
     assert "Missing required fields: name" in response.json["error"]["message"]
 
     # Test missing contact methods
     data = {"name": "Test User"}
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
+    assert response.json["status"] == "error"
     assert (
         "Missing required fields: contact_methods" in response.json["error"]["message"]
     )
@@ -62,6 +66,7 @@ def test_create_contact_invalid_data(client):
     data = {"name": "Test User", "contact_methods": []}
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
+    assert response.json["status"] == "error"
     assert "Contact methods cannot be empty" in response.json["error"]["message"]
 
     # Test invalid contact method type
@@ -71,6 +76,7 @@ def test_create_contact_invalid_data(client):
     }
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 400
+    assert response.json["status"] == "error"
     assert "Invalid contact method type" in response.json["error"]["message"]
 
 
@@ -79,6 +85,7 @@ def test_get_contact_by_email(session_client, base_contact):
     """Test getting a contact by email."""
     response = session_client.get(f"/api/contacts/lookup/email/base@example.com")
     assert response.status_code == 200
+    assert response.json["status"] == "success"
     result = response.json["data"]
     assert len(result) == 1
     assert result[0]["name"] == "Base User"
@@ -114,7 +121,8 @@ def test_get_contact_emails(session_client, base_contact, base_email):
     """Test getting emails for a contact."""
     response = session_client.get("/api/contacts/base@example.com/emails")
     assert response.status_code == 200
-    result = response.json
+    assert response.json["status"] == "success"
+    result = response.json["data"]
     assert len(result) == 1
     assert result[0]["subject"] == "Base Email"
     assert result[0]["content"] == "Base content"
@@ -125,7 +133,8 @@ def test_get_emails_nonexistent_contact(session_client):
     """Test getting emails for a non-existent contact."""
     response = session_client.get("/api/contacts/nonexistent@example.com/emails")
     assert response.status_code == 404
-    assert "not found" in response.json["error"].lower()
+    assert response.json["status"] == "error"
+    assert "not found" in response.json["error"]["message"].lower()
 
 
 @pytest.mark.modifying
@@ -143,4 +152,5 @@ def test_duplicate_contact_method(client, base_contact):
     }
     response = client.post("/api/contacts", json=data, content_type="application/json")
     assert response.status_code == 409  # Conflict
-    assert "already" in response.json["error"].lower()
+    assert response.json["status"] == "error"
+    assert "already" in response.json["error"]["message"].lower()
