@@ -23,7 +23,11 @@ class EmailService:
         self.service = None
 
     def authenticate(self):
-        """Authenticate with Gmail API"""
+        """Authenticate with Gmail API.
+
+        Raises:
+            RuntimeError: If authentication fails
+        """
         if os.path.exists(self.token_path):
             with open(self.token_path, "rb") as token:
                 self.creds = pickle.load(token)
@@ -43,7 +47,17 @@ class EmailService:
         self.service = build("gmail", "v1", credentials=self.creds)
 
     def fetch_emails(self, query: str = "") -> List[dict]:
-        """Fetch emails from Gmail based on query"""
+        """Fetch emails from Gmail based on query.
+
+        Args:
+            query: Gmail search query string
+
+        Returns:
+            List of dictionaries containing email data
+
+        Raises:
+            RuntimeError: If Gmail service fails or query fails
+        """
         if not self.service:
             self.authenticate()
 
@@ -112,7 +126,15 @@ class EmailService:
             raise RuntimeError(f"Error fetching emails: {str(e)}")
 
     def save_emails_to_db(self, emails: List[dict], contacts: List[Contact]):
-        """Save fetched emails to database"""
+        """Save fetched emails to database.
+
+        Args:
+            emails: List of email data dictionaries
+            contacts: List of Contact objects to associate with emails
+
+        Raises:
+            RuntimeError: If database operation fails
+        """
         for email_data in emails:
             if not email_data.get("date"):
                 continue
@@ -142,7 +164,14 @@ class EmailService:
 
     @staticmethod
     def get_emails_for_contacts(contact_ids: Optional[List[int]] = None) -> List[Email]:
-        """Get emails for specified contacts or all emails if no contacts specified"""
+        """Get emails for specified contacts or all emails if no contacts specified.
+
+        Args:
+            contact_ids: Optional list of contact IDs to filter by
+
+        Returns:
+            List of Email objects ordered by date descending
+        """
         query = Email.query
         if contact_ids:
             query = query.join(Email.contacts).filter(Contact.id.in_(contact_ids))
@@ -150,11 +179,48 @@ class EmailService:
 
     @staticmethod
     def format_email_response(email: Email) -> dict:
-        """Format an email object into API response format"""
-        return {
-            "id": email.id,
-            "date": email.date.isoformat(),
-            "content": email.content,
-            "summary": email.summary,
-            "contacts": [{"id": c.id, "name": c.name} for c in email.contacts],
-        }
+        """Format an email object into API response format.
+
+        Args:
+            email: Email object to format
+
+        Returns:
+            Dictionary containing formatted email data
+
+        Raises:
+            Exception: If object is detached from session
+        """
+        try:
+            return {
+                "id": email.id,
+                "subject": email.subject,
+                "content": email.content,
+                "summary": email.summary,
+                "date": email.date.isoformat() if email.date else None,
+                "contacts": (
+                    [
+                        {
+                            "id": contact.id,
+                            "name": contact.name,
+                            "email": next(
+                                (
+                                    cm.value
+                                    for cm in contact.contact_methods
+                                    if cm.method_type == "email"
+                                ),
+                                None,
+                            ),
+                        }
+                        for contact in email.contacts
+                    ]
+                    if email.contacts
+                    else []
+                ),
+            }
+        except Exception as e:
+            # If the object is detached, try to refresh it
+            from ..models.base import db
+
+            db.session.add(email)
+            db.session.refresh(email)
+            return EmailService.format_email_response(email)
