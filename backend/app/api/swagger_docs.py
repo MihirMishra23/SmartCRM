@@ -3,16 +3,14 @@ Swagger/OpenAPI documentation for API endpoints.
 This file contains the actual API documentation using schemas and templates.
 """
 
-from .swagger_schemas import SwaggerTemplate
+from .swagger_schemas import SwaggerTemplate, SwaggerResponse, SwaggerParameter
 from .swagger_templates import (
     CONTACT_SCHEMA,
     EMAIL_SCHEMA,
     PAGE_PARAM,
     PER_PAGE_PARAM,
     EMAIL_PARAM,
-    ERROR_400,
-    ERROR_404,
-    ERROR_500,
+    ERROR_SCHEMA,
     create_list_response,
     create_single_response,
 )
@@ -24,9 +22,11 @@ GET_CONTACTS_DOCS = SwaggerTemplate(
     parameters=[PAGE_PARAM, PER_PAGE_PARAM],
     responses={
         "200": create_list_response(CONTACT_SCHEMA),
-        "400": ERROR_400,
-        "404": ERROR_404,
-        "500": ERROR_500,
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
 
@@ -34,17 +34,21 @@ CREATE_CONTACT_DOCS = SwaggerTemplate(
     summary="Create a new contact",
     description="Create a new contact with the provided information",
     parameters=[
-        {
-            "name": "body",
-            "in": "body",
-            "required": True,
-            "schema": CONTACT_SCHEMA.to_dict(),
-        }
+        SwaggerParameter(
+            name="body",
+            in_="body",
+            type="object",
+            description="Contact information",
+            required=True,
+            schema=CONTACT_SCHEMA.to_dict(),
+        )
     ],
     responses={
         "201": create_single_response(CONTACT_SCHEMA),
-        "400": ERROR_400,
-        "500": ERROR_500,
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
 
@@ -54,8 +58,10 @@ DELETE_CONTACT_DOCS = SwaggerTemplate(
     parameters=[EMAIL_PARAM],
     responses={
         "200": create_single_response(CONTACT_SCHEMA),
-        "404": ERROR_404,
-        "500": ERROR_500,
+        "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
 
@@ -66,9 +72,11 @@ GET_CONTACT_EMAILS_DOCS = SwaggerTemplate(
     parameters=[EMAIL_PARAM],
     responses={
         "200": create_list_response(EMAIL_SCHEMA),
-        "400": ERROR_400,
-        "404": ERROR_404,
-        "500": ERROR_500,
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
 
@@ -78,9 +86,11 @@ SYNC_CONTACT_EMAILS_DOCS = SwaggerTemplate(
     parameters=[EMAIL_PARAM],
     responses={
         "200": create_single_response(EMAIL_SCHEMA),
-        "400": ERROR_400,
-        "404": ERROR_404,
-        "500": ERROR_500,
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
 
@@ -88,11 +98,13 @@ SYNC_ALL_EMAILS_DOCS = SwaggerTemplate(
     summary="Sync all emails",
     description="Synchronize emails for all contacts or filtered by search criteria",
     parameters=[
-        {
-            "name": "body",
-            "in": "body",
-            "required": False,
-            "schema": {
+        SwaggerParameter(
+            name="body",
+            in_="body",
+            type="object",
+            description="Filter criteria for email synchronization",
+            required=False,
+            schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Filter by contact name"},
@@ -106,12 +118,14 @@ SYNC_ALL_EMAILS_DOCS = SwaggerTemplate(
                     },
                 },
             },
-        }
+        )
     ],
     responses={
         "200": create_single_response(EMAIL_SCHEMA),
-        "400": ERROR_400,
-        "404": ERROR_404,
-        "500": ERROR_500,
+        "400": SwaggerResponse(description="Bad Request", schema=ERROR_SCHEMA),
+        "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),
+        "500": SwaggerResponse(
+            description="Internal Server Error", schema=ERROR_SCHEMA
+        ),
     },
 ).to_dict()
