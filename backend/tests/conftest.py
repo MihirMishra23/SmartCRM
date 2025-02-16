@@ -116,14 +116,17 @@ def test_session(_db):
     session_factory = sessionmaker(bind=connection)
     session = scoped_session(session_factory)
 
+    # Store the original session and replace it with our test session
+    old_session = _db.session
     _db.session = session
 
     yield session
 
-    # Rollback the transaction and remove the session
-    session.close()
-    transaction.rollback()
-    connection.close()
+    # Cleanup after the test
+    _db.session = old_session  # Restore the original session
+    session.remove()  # Remove the scoped session
+    transaction.rollback()  # Rollback the transaction
+    connection.close()  # Close the connection
 
 
 @pytest.fixture(scope="function")
