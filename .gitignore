@@ -1,12 +1,11 @@
-attachments/
 venv/
 gmail_credentials.json
 drive_credentials.json
 gmail_token.json
 drive_token.json
 .env
+*.egg-info/
+
+.coverage
 
 __pycache__/
-
-test.py
-contacts.csv
