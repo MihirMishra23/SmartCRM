@@ -1,6 +1,8 @@
 import pytest
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 from backend.app import create_app
 from backend.app.models.base import db
 from backend.app.models.contact import Contact
@@ -9,6 +11,20 @@ from backend.app.models.email import Email
 from backend.app.models.contact_email import ContactEmail
 from backend.app.config import Config
 from sqlalchemy.orm import scoped_session, sessionmaker
+
+# Add the backend directory to Python path
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+
+class TestConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SECRET_KEY = "test-key"
+    GMAIL_TOKEN_PATH = "test_token.pickle"
+    GMAIL_CREDENTIALS_PATH = "test_credentials.json"
 
 
 def create_base_data(session):
@@ -65,13 +81,6 @@ def create_base_data(session):
 @pytest.fixture(scope="session")
 def app():
     """Create and configure a test Flask application instance for the entire test session."""
-
-    class TestConfig(Config):
-        TESTING = True
-        SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
-        SQLALCHEMY_TRACK_MODIFICATIONS = False
-        SECRET_KEY = "test-key"
-
     app = create_app(TestConfig)
 
     # Create tables and session-level test data
