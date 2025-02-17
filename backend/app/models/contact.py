@@ -25,5 +25,35 @@ class Contact(db.Model):
         "Email", secondary="contact_emails", back_populates="contacts"
     )
 
+    @property
+    def email_addresses(self):
+        """Get all email addresses associated with this contact."""
+        return [cm.value for cm in self.contact_methods if cm.method_type == "email"]
+
+    @property
+    def primary_email(self):
+        """Get the primary email address for this contact."""
+        primary = next(
+            (
+                cm.value
+                for cm in self.contact_methods
+                if cm.method_type == "email" and cm.is_primary
+            ),
+            None,
+        )
+        if primary is None and self.email_addresses:
+            return self.email_addresses[0]
+        return primary
+
+    @property
+    def sent_emails(self):
+        """Get all emails sent by this contact."""
+        return [email for email in self.emails if email.sender_id == self.id]
+
+    @property
+    def received_emails(self):
+        """Get all emails received by this contact."""
+        return [email for email in self.emails if email.sender_id != self.id]
+
     def __repr__(self):
         return f"<Contact {self.name}>"
