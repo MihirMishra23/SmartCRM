@@ -61,18 +61,12 @@ def create_base_data(session):
     base_email_msg = Email()
     base_email_msg.subject = "Base Email"
     base_email_msg.content = "Base content"
-    base_email_msg.date = datetime.now()
+    base_email_msg.date = datetime.now().date()  # Use .date() since the column is Date
     base_email_msg.summary = "Base summary"
+    base_email_msg.sender_id = base_contact.id  # Set the sender relationship
+    base_email_msg.contacts.append(base_contact)  # Add to contacts relationship
 
     session.add(base_email_msg)
-    session.commit()
-
-    # Link email to contact
-    base_contact_email = ContactEmail()
-    base_contact_email.contact_id = base_contact.id
-    base_contact_email.email_id = base_email_msg.id
-
-    session.add(base_contact_email)
     session.commit()
 
     return base_contact, base_email_msg
