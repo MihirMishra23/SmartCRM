@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import or_, and_, desc, func
 import logging
 import time
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,10 @@ class EmailService:
         logger.debug(f"Checking for token at {self.token_path}")
 
         if os.path.exists(self.token_path):
-            logger.debug("Found existing token file")
-            with open(self.token_path, "rb") as token:
-                self.creds = pickle.load(token)
+            logger.debug(f"Found existing token file at {self.token_path}")
+            with open(self.token_path, "r") as token_file:
+                token_data = json.loads(token_file.read())
+                self.creds = Credentials.from_authorized_user_info(token_data)
                 logger.debug(
                     f"Loaded credentials, valid={self.creds.valid if self.creds else False}"
                 )
@@ -68,8 +70,16 @@ class EmailService:
                 logger.info("New token obtained successfully")
 
             logger.debug("Saving token to file")
-            with open(self.token_path, "wb") as token:
-                pickle.dump(self.creds, token)
+            with open(self.token_path, "w") as token_file:
+                token_data = {
+                    "token": self.creds.token,
+                    "refresh_token": self.creds.refresh_token,
+                    "token_uri": self.creds.token_uri,
+                    "client_id": self.creds.client_id,
+                    "client_secret": self.creds.client_secret,
+                    "scopes": self.creds.scopes,
+                }
+                json.dump(token_data, token_file)
 
         try:
             logger.debug("Building Gmail service")
@@ -178,15 +188,12 @@ class EmailService:
             logger.error(f"Error fetching emails: {str(e)}", exc_info=True)
             raise RuntimeError(f"Error fetching emails: {str(e)}")
 
-    def save_emails_to_db(
-        self, emails: List[dict], sender: Contact, receivers: List[Contact]
-    ):
+    def save_emails_to_db(self, emails: List[dict], sender: Contact):
         """Save fetched emails to database.
 
         Args:
             emails: List of email data dictionaries
             sender: Contact object who sent the emails
-            receivers: List of Contact objects who received the emails
 
         Raises:
             RuntimeError: If database operation fails
@@ -211,9 +218,11 @@ class EmailService:
                 email.summary = ""  # You might want to generate this using GPT
                 email.subject = email_data.get("subject", "No Subject")
 
-                # Set sender and receivers
+                # Set sender
                 email.sender = sender
-                email.receivers.extend(receivers)
+
+                # Add to contacts relationship (which includes both sender and receivers)
+                email.contacts.append(sender)
 
                 db.session.add(email)
                 successful_saves += 1
