@@ -1,5 +1,6 @@
 from .base import db
 from sqlalchemy.orm import relationship
+from .contact_email import ContactEmail
 
 
 class Email(db.Model):
@@ -16,9 +17,14 @@ class Email(db.Model):
     sender = relationship(
         "Contact", foreign_keys=[sender_id], back_populates="sent_emails"
     )
-    receivers = relationship(
-        "Contact", secondary="email_receivers", back_populates="received_emails"
+    contacts = relationship(
+        "Contact", secondary="contact_emails", back_populates="emails"
     )
+
+    @property
+    def receivers(self):
+        """Get all contacts who received this email (excluding the sender)."""
+        return [contact for contact in self.contacts if contact.id != self.sender_id]
 
     def __repr__(self):
         return f"<Email {self.id} from {self.date}>"
