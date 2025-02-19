@@ -19,7 +19,11 @@ from .swagger_docs import (
     SYNC_CONTACT_EMAILS_DOCS,
     SYNC_ALL_EMAILS_DOCS,
     GET_CONTACT_BY_EMAIL_DOCS,
+    SEARCH_EMAILS_DOCS,
+    EMAIL_STATS_DOCS,
 )
+import logging
+from os.path import expanduser
 
 api = Blueprint("api", __name__)
 
@@ -73,12 +77,24 @@ class MetaData(TypedDict, total=False):
     metadata structures across different endpoint responses.
     """
 
+    # Pagination
     page: Optional[int]
     per_page: Optional[int]
     total: Optional[int]
+    limit: Optional[int]
+    offset: Optional[int]
+    has_more: Optional[bool]
+
+    # Email counts
     email_count: Optional[int]
     contact_count: Optional[int]
-    # Add any other potential meta fields here
+    sent_count: Optional[int]
+    received_count: Optional[int]
+    sent_emails_count: Optional[int]
+    total_emails: Optional[int]
+
+    # IDs
+    contact_id: Optional[int]
 
 
 class APIResponse:
@@ -245,9 +261,13 @@ def create_contact():
         APIResponse: JSON response containing the created contact
 
     Raises:
-        BadRequestError: If the request data is invalid
+        BadRequestError: If the request data is invalid or Content-Type is not application/json
         ConflictError: If a contact with the same email already exists
     """
+    # Validate Content-Type header
+    if not request.is_json:
+        raise BadRequestError("Content-Type must be application/json")
+
     data = request.json
     if not isinstance(data, dict):
         raise BadRequestError("Invalid request data")
@@ -316,9 +336,22 @@ def get_contact_emails(email: str):
         if not contact:
             raise NotFoundError(f"Contact with email {email} not found")
 
-        emails = EmailService.get_emails_for_contacts([contact.id])
+        # Get both sent and received emails
+        emails = EmailService.get_all_emails_for_contact(contact.id)
         formatted_emails = [EmailService.format_email_response(e) for e in emails]
-        return APIResponse.success(data=formatted_emails, meta={"total": len(emails)})
+
+        # Split into sent and received for metadata
+        sent_count = len([e for e in emails if e.sender_id == contact.id])
+        received_count = len([e for e in emails if e.sender_id != contact.id])
+
+        return APIResponse.success(
+            data=formatted_emails,
+            meta={
+                "total": len(emails),
+                "sent_count": sent_count,
+                "received_count": received_count,
+            },
+        )
     except Exception as e:
         if isinstance(e, NotFoundError):
             raise
@@ -344,8 +377,12 @@ def sync_contact_emails(email: str):
 
     Raises:
         NotFoundError: If the contact doesn't exist
-        BadRequestError: If sync operation fails
+        BadRequestError: If sync operation fails or Content-Type is not application/json
     """
+    # Validate Content-Type header
+    if not request.is_json:
+        raise BadRequestError("Content-Type must be application/json")
+
     try:
         contact = ContactService.get_contact_by_email(email)
         if not contact:
@@ -355,20 +392,20 @@ def sync_contact_emails(email: str):
             token_path="gmail_token.json", credentials_path="gmail_credentials.json"
         )
 
-        email_methods = [
-            cm.value for cm in contact.contact_methods if cm.method_type == "email"
-        ]
-
-        if not email_methods:
+        email_addresses = contact.email_addresses
+        if not email_addresses:
             raise BadRequestError("No email addresses found for the contact")
 
-        query = " OR ".join(f"from:{email}" for email in email_methods)
+        # Fetch emails sent by this contact
+        query = " OR ".join(f"from:{email}" for email in email_addresses)
+        sent_emails = email_service.fetch_emails(query)
 
-        emails = email_service.fetch_emails(query)
-        email_service.save_emails_to_db(emails, [contact])
+        # Save sent emails
+        email_service.save_emails_to_db(sent_emails, sender=contact)
 
         return APIResponse.success(
-            message="Emails synced successfully", meta={"email_count": len(emails)}
+            message="Emails synced successfully",
+            meta={"sent_emails_count": len(sent_emails)},
         )
     except RuntimeError as e:
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
@@ -397,46 +434,195 @@ def sync_all_emails():
 
     Raises:
         NotFoundError: If no contacts match the criteria
-        BadRequestError: If sync operation fails
+        BadRequestError: If sync operation fails or Content-Type is not application/json
     """
+    logger = logging.getLogger(__name__)
+    logger.info("Starting sync_all_emails endpoint")
+
+    # Validate Content-Type header
+    if not request.is_json:
+        logger.error("Request Content-Type is not application/json")
+        raise BadRequestError("Content-Type must be application/json")
+
     try:
-        data = request.json
+        data = request.json or {}
         if not isinstance(data, dict):
+            logger.error(f"Invalid request data type: {type(data)}")
             raise BadRequestError("Invalid request data")
 
-        name = data.get("name")
-        email = data.get("email")
-        company = data.get("company")
-
-        contacts = ContactService.get_contacts(name=name, email=email, company=company)
+        logger.debug(f"Searching contacts with filters: {data}")
+        contacts = ContactService.get_contacts(
+            name=data.get("name"), email=data.get("email"), company=data.get("company")
+        )
 
         if not contacts:
+            logger.warning("No contacts found matching the criteria")
             raise NotFoundError("No contacts found matching the criteria")
 
+        logger.info(f"Found {len(contacts)} contacts to sync")
+
         email_service = EmailService(
-            token_path="gmail_token.json", credentials_path="gmail_credentials.json"
+            token_path=expanduser("~/CodingStuff/Projects/SmartCRM/gmail_token.json"),
+            credentials_path=expanduser(
+                "~/CodingStuff/Projects/SmartCRM/gmail_credentials.json"
+            ),
         )
 
-        email_addresses = []
-        for contact in contacts:
-            email_methods = [
-                cm.value for cm in contact.contact_methods if cm.method_type == "email"
-            ]
-            email_addresses.extend(email_methods)
+        total_emails = 0
+        for idx, contact in enumerate(contacts):
+            logger.debug(
+                f"Processing contact {idx + 1}/{len(contacts)}: {contact.name}"
+            )
+            email_addresses = contact.email_addresses
+            if not email_addresses:
+                logger.warning(f"No email addresses found for contact {contact.name}")
+                continue
 
-        if not email_addresses:
-            raise BadRequestError("No email addresses found for the specified contacts")
+            # Fetch emails sent by this contact
+            query = " OR ".join(f"from:{email}" for email in email_addresses)
+            logger.debug(f"Gmail query for contact {contact.name}: {query}")
 
-        query = " OR ".join(f"from:{email}" for email in email_addresses)
+            sent_emails = email_service.fetch_emails(query)
+            logger.info(f"Found {len(sent_emails)} emails for contact {contact.name}")
 
-        emails = email_service.fetch_emails(query)
-        email_service.save_emails_to_db(emails, contacts)
+            # Save emails
+            logger.debug(f"Saving {len(sent_emails)} emails for contact {contact.name}")
+            email_service.save_emails_to_db(sent_emails, sender=contact)
+            total_emails += len(sent_emails)
 
+        logger.info(
+            f"Sync completed. Total emails: {total_emails}, Contacts: {len(contacts)}"
+        )
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={"email_count": len(emails), "contact_count": len(contacts)},
+            meta={"email_count": total_emails, "contact_count": len(contacts)},
         )
     except RuntimeError as e:
+        logger.error(f"Failed to sync emails: {str(e)}", exc_info=True)
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
     except Exception as e:
+        logger.error(f"Unexpected error during sync: {str(e)}", exc_info=True)
         raise
+
+
+@api.route("/emails/search", methods=["GET"])
+@swag_from(SEARCH_EMAILS_DOCS)
+def search_emails():
+    """Search emails with various filters.
+
+    Query Parameters:
+        q (str): Search term to match in subject or content
+        contact_id (int): Filter by contact ID
+        start_date (str): Filter emails after this date (YYYY-MM-DD)
+        end_date (str): Filter emails before this date (YYYY-MM-DD)
+        is_sender (bool): If true, only get emails sent by contact_id
+        limit (int): Maximum number of results to return
+        offset (int): Number of results to skip
+
+    Returns:
+        APIResponse: JSON response containing:
+            - data: List of Email objects
+            - meta: Search metadata
+    """
+    try:
+        # Parse query parameters
+        query = request.args.get("q")
+        contact_id = request.args.get("contact_id", type=int)
+        start_date_str = request.args.get("start_date")
+        end_date_str = request.args.get("end_date")
+        is_sender = request.args.get(
+            "is_sender", type=lambda v: v.lower() == "true" if v else None
+        )
+        limit = min(int(request.args.get("limit", 50)), 100)  # Cap at 100
+        offset = int(request.args.get("offset", 0))
+
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+        if start_date_str:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        if end_date_str:
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        # Perform search
+        result = EmailService.search_emails(
+            query=query,
+            contact_id=contact_id,
+            start_date=start_date,
+            end_date=end_date,
+            is_sender=is_sender,
+            limit=limit,
+            offset=offset,
+        )
+
+        return APIResponse.success(
+            data=[
+                EmailService.format_email_response(email) for email in result["emails"]
+            ],
+            meta={
+                "total": result["total"],
+                "has_more": result["has_more"],
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+    except ValueError as e:
+        raise BadRequestError(f"Invalid parameter format: {str(e)}")
+    except Exception as e:
+        raise BadRequestError(f"Search failed: {str(e)}")
+
+
+@api.route("/contacts/<int:contact_id>/email-stats", methods=["GET"])
+def get_contact_email_stats(contact_id: int):
+    """Get email statistics for a contact.
+
+    Args:
+        contact_id: ID of the contact
+
+    Returns:
+        APIResponse: JSON response containing email statistics:
+            - total_sent: Number of emails sent
+            - total_received: Number of emails received
+            - most_frequent_senders: Top contacts who send emails
+            - most_frequent_receivers: Top contacts who receive emails
+            - email_volume_by_month: Email count by month
+    """
+    try:
+        contact = Contact.query.get(contact_id)
+        if not contact:
+            raise NotFoundError(f"Contact with ID {contact_id} not found")
+
+        stats = EmailService.get_email_statistics(contact_id)
+
+        # Format the response
+        formatted_stats = {
+            "total_sent": stats["total_sent"],
+            "total_received": stats["total_received"],
+            "most_frequent_senders": [
+                {
+                    "contact": ContactService.format_contact_response(item["contact"]),
+                    "email_count": item["email_count"],
+                }
+                for item in stats["most_frequent_senders"]
+            ],
+            "most_frequent_receivers": [
+                {
+                    "contact": ContactService.format_contact_response(item["contact"]),
+                    "email_count": item["email_count"],
+                }
+                for item in stats["most_frequent_receivers"]
+            ],
+            "email_volume_by_month": stats["email_volume_by_month"],
+        }
+
+        return APIResponse.success(
+            data=formatted_stats,
+            meta={
+                "contact_id": contact_id,
+                "total_emails": stats["total_sent"] + stats["total_received"],
+            },
+        )
+    except Exception as e:
+        if isinstance(e, NotFoundError):
+            raise
+        raise BadRequestError(f"Failed to get email statistics: {str(e)}")
