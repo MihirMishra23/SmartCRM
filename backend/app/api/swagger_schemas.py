@@ -59,6 +59,7 @@ class ParameterDict(TypedDict, total=False):
     required: bool
     default: Any
     schema: Dict[str, Any]
+    format: Optional[str]
 
 
 @dataclass
@@ -70,6 +71,7 @@ class SwaggerParameter:
     required: bool = False
     default: Optional[Any] = None
     schema: Optional[Dict[str, Any]] = None
+    format: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:  # Changed return type to be more permissive
         result = {
@@ -83,6 +85,8 @@ class SwaggerParameter:
             result["schema"] = self.schema
         if self.default is not None:
             result["default"] = self.default
+        if self.format is not None:
+            result["format"] = self.format
         return result
 
 
