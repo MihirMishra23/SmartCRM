@@ -1,6 +1,7 @@
 from datetime import datetime
 from .base import db
 from sqlalchemy.orm import relationship
+from .contact_email import ContactEmail
 
 
 class Contact(db.Model):
@@ -24,6 +25,9 @@ class Contact(db.Model):
     emails = relationship(
         "Email", secondary="contact_emails", back_populates="contacts"
     )
+    sent_emails = relationship(
+        "Email", back_populates="sender", foreign_keys="Email.sender_id"
+    )
 
     @property
     def email_addresses(self):
@@ -44,11 +48,6 @@ class Contact(db.Model):
         if primary is None and self.email_addresses:
             return self.email_addresses[0]
         return primary
-
-    @property
-    def sent_emails(self):
-        """Get all emails sent by this contact."""
-        return [email for email in self.emails if email.sender_id == self.id]
 
     @property
     def received_emails(self):
