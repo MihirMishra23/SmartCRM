@@ -12,6 +12,9 @@ function App() {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Smart CRM
           </Typography>
+          <Button color="inherit" component={Link} to="/">
+            Home
+          </Button>
           <Button color="inherit" component={Link} to="/contacts">
             Contacts
           </Button>
@@ -24,21 +27,18 @@ function App() {
       {/* Dynamic spacing to accommodate AppBar height */}
       <Box sx={{ height: (theme) => theme.mixins.toolbar.minHeight }} />
 
-      <Routes>
-        <Route path="/" element={<Homepage />} />
-      </Routes>
-
       <Container
         maxWidth="xl"
         sx={{
           mt: 4,
-          px: { xs: 2, sm: 4, md: 6 }, // Responsive padding
+          px: { xs: 2, sm: 4, md: 6 },
           width: '100%',
-          minHeight: 'calc(100vh - 64px)', // Full height minus AppBar
-          backgroundColor: '#fafafa' // Light background for better visual separation
+          minHeight: 'calc(100vh - 64px)',
+          backgroundColor: '#fafafa'
         }}
       >
         <Routes>
+          <Route path="/" element={<Homepage />} />
           <Route path="/contacts" element={<ContactList />} />
           <Route path="/add-contact" element={<AddContact />} />
         </Routes>

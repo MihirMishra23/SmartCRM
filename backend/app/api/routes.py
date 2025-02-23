@@ -249,6 +249,11 @@ def get_contact_by_email(email: str):
     )
 
 
+@api.route("/test", methods=["GET", "OPTIONS"])
+def test():
+    return APIResponse.success(message="Hello, world!")
+
+
 @api.route("/contacts", methods=["POST"])
 @swag_from(CREATE_CONTACT_DOCS)
 def create_contact():
