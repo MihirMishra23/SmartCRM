@@ -135,7 +135,16 @@ const AddContact: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            await api.post('/contacts', formData);
+            console.log('Form Data Type:', typeof formData);
+            console.log('Form Data Structure:', {
+                raw: formData,
+                stringified: JSON.stringify(formData),
+                parsed: JSON.parse(JSON.stringify(formData))
+            });
+            console.log('Contact Methods:', formData.contact_methods);
+
+            const response = await api.post('/contacts', JSON.parse(JSON.stringify(formData)));
+            console.log('API Response:', response);
 
             setSuccess(true);
             setFormData({
@@ -150,6 +159,12 @@ const AddContact: React.FC = () => {
                 contact_methods: [{ type: 'email', value: '', is_primary: true }]
             });
         } catch (err: any) {
+            console.error('API Error:', {
+                error: err,
+                response: err.response,
+                data: err.response?.data,
+                status: err.response?.status
+            });
             setError(err.response?.data?.message || 'Failed to create contact');
         } finally {
             setLoading(false);
