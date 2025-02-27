@@ -27,14 +27,15 @@ function App() {
       {/* Dynamic spacing to accommodate AppBar height */}
       <Box sx={{ height: (theme) => theme.mixins.toolbar.minHeight }} />
 
+
       <Container
-        maxWidth="xl"
+        maxWidth={false}
         sx={{
-          mt: 4,
-          px: { xs: 2, sm: 4, md: 6 },
           width: '100%',
           minHeight: 'calc(100vh - 64px)',
-          backgroundColor: '#fafafa'
+          backgroundColor: '#fafafa',
+          justifyContent: 'center',
+          alignItems: 'center',
         }}
       >
         <Routes>
