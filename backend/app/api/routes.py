@@ -156,17 +156,24 @@ class APIResponse:
 
 @api.errorhandler(APIError)
 def handle_api_error(error):
+    logging.error(f"API Error: {error.message} (Status: {error.status_code})")
     return APIResponse.error(error.message, error.status_code)
 
 
 @api.errorhandler(SQLAlchemyError)
 def handle_db_error(error):
-    return APIResponse.error("Database error occurred", 500, str(error))
+    error_details = str(error)
+    logging.error(f"Database Error: {error_details}")
+    logging.error(f"Traceback: {traceback.format_exc()}")
+    return APIResponse.error("Database error occurred", 500, error_details)
 
 
 @api.errorhandler(Exception)
 def handle_generic_error(error):
-    return APIResponse.error("An unexpected error occurred", 500, str(error))
+    error_details = str(error)
+    logging.error(f"Unexpected Error: {error_details}")
+    logging.error(f"Traceback: {traceback.format_exc()}")
+    return APIResponse.error("An unexpected error occurred", 500, error_details)
 
 
 def validate_contact_data(data: Dict) -> None:
@@ -311,16 +318,41 @@ def delete_contact(contact_id: int):
         NotFoundError: If the contact doesn't exist
         SQLAlchemyError: If database operation fails
     """
+    logging.info(f"Attempting to delete contact with ID: {contact_id}")
     try:
+        # Query the contact
+        logging.info(f"Querying database for contact with ID: {contact_id}")
         contact = Contact.query.get(contact_id)
+
         if not contact:
+            logging.warning(f"Contact with ID {contact_id} not found")
             raise NotFoundError(f"Contact with ID {contact_id} not found")
 
+        # Log contact details and relationships before deletion
+        logging.info(f"Found contact: {contact.name} (ID: {contact_id})")
+        logging.info(f"Contact has {len(contact.contact_methods)} contact methods")
+        logging.info(f"Contact is associated with {len(contact.emails)} emails")
+        logging.info(f"Contact has sent {len(contact.sent_emails)} emails")
+
+        # Attempt to delete
+        logging.info(f"Attempting to delete contact from database")
         db.session.delete(contact)
+
+        # Commit the transaction
+        logging.info(f"Committing transaction")
         db.session.commit()
+
+        logging.info(f"Contact {contact_id} deleted successfully")
         return APIResponse.success(message="Contact deleted successfully")
     except SQLAlchemyError as e:
         db.session.rollback()
+        logging.error(f"SQLAlchemy error when deleting contact {contact_id}: {str(e)}")
+        logging.error(f"Error details: {traceback.format_exc()}")
+        raise
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Unexpected error when deleting contact {contact_id}: {str(e)}")
+        logging.error(f"Error details: {traceback.format_exc()}")
         raise
 
 
