@@ -8,7 +8,8 @@ import {
     TextField,
     InputAdornment,
     Button,
-    Stack
+    Stack,
+    Container
 } from '@mui/material';
 import { Search as SearchIcon, Add as AddIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -79,8 +80,18 @@ const ContactList: React.FC = () => {
     }
 
     return (
-        <Box>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
+        <Container sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 'calc(100vh - 64px)',
+            textAlign: 'center',
+            py: 4,
+            width: '100vw',
+            maxWidth: '100%',
+        }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3} sx={{ width: '100%' }}>
                 <Typography variant="h5" component="h1">
                     Contacts
                 </Typography>
@@ -135,7 +146,7 @@ const ContactList: React.FC = () => {
                     ))}
                 </Grid>
             )}
-        </Box>
+        </Container>
     );
 };
 
