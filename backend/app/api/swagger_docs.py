@@ -58,10 +58,18 @@ CREATE_CONTACT_DOCS = SwaggerTemplate(
     },
 ).to_dict()
 
+CONTACT_ID_PARAM = SwaggerParameter(
+    name="contact_id",
+    in_="path",
+    type="integer",
+    required=True,
+    description="ID of the contact to delete",
+)
+
 DELETE_CONTACT_DOCS = SwaggerTemplate(
     summary="Delete a contact",
-    description="Delete a contact by their email address",
-    parameters=[EMAIL_PARAM],
+    description="Delete a contact by their ID",
+    parameters=[CONTACT_ID_PARAM],
     responses={
         "200": create_single_response(CONTACT_SCHEMA),
         "404": SwaggerResponse(description="Not Found", schema=ERROR_SCHEMA),

@@ -296,13 +296,13 @@ def create_contact():
         raise
 
 
-@api.route("/contacts/<string:email>", methods=["DELETE"])
+@api.route("/contacts/<int:contact_id>", methods=["DELETE"])
 @swag_from(DELETE_CONTACT_DOCS)
-def delete_contact(email: str):
-    """Delete a contact by their email address.
+def delete_contact(contact_id: int):
+    """Delete a contact by their ID.
 
     Args:
-        email: Email address of the contact to delete
+        contact_id: ID of the contact to delete
 
     Returns:
         APIResponse: Success message if deleted
@@ -312,10 +312,15 @@ def delete_contact(email: str):
         SQLAlchemyError: If database operation fails
     """
     try:
-        if not ContactService.delete_contact_by_email(email):
-            raise NotFoundError(f"Contact with email {email} not found")
+        contact = Contact.query.get(contact_id)
+        if not contact:
+            raise NotFoundError(f"Contact with ID {contact_id} not found")
+
+        db.session.delete(contact)
+        db.session.commit()
         return APIResponse.success(message="Contact deleted successfully")
     except SQLAlchemyError as e:
+        db.session.rollback()
         raise
 
 
