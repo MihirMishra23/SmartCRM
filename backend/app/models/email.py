@@ -7,11 +7,13 @@ class Email(db.Model):
     __tablename__ = "emails"
 
     id = db.Column(db.Integer, primary_key=True)
-    subject = db.Column(db.Text, nullable=False)
+    subject = db.Column(db.Text, nullable=True)
     date = db.Column(db.Date, nullable=False)
     summary = db.Column(db.Text)
     content = db.Column(db.Text, nullable=False)
-    sender_id = db.Column(db.Integer, db.ForeignKey("contacts.id"), nullable=False)
+    sender_id = db.Column(
+        db.Integer, db.ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     sender = relationship(

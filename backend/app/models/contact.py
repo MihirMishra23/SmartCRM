@@ -23,10 +23,16 @@ class Contact(db.Model):
         "ContactMethod", back_populates="contact", cascade="all, delete-orphan"
     )
     emails = relationship(
-        "Email", secondary="contact_emails", back_populates="contacts"
+        "Email",
+        secondary="contact_emails",
+        back_populates="contacts",
+        passive_deletes=True,
     )
     sent_emails = relationship(
-        "Email", back_populates="sender", foreign_keys="Email.sender_id"
+        "Email",
+        back_populates="sender",
+        foreign_keys="Email.sender_id",
+        passive_deletes=True,
     )
 
     @property
