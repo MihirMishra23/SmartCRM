@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import api from '../services/api';
+import { useNavigate } from 'react-router-dom';
 
 interface ContactMethod {
     type: 'email' | 'phone' | 'linkedin';
@@ -56,6 +57,7 @@ const AddContact: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    const navigate = useNavigate();
 
     const handleInputChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
         setFormData(prev => ({
@@ -135,29 +137,29 @@ const AddContact: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            console.log('Form Data Type:', typeof formData);
-            console.log('Form Data Structure:', {
-                raw: formData,
-                stringified: JSON.stringify(formData),
-                parsed: JSON.parse(JSON.stringify(formData))
-            });
-            console.log('Contact Methods:', formData.contact_methods);
-
-            const response = await api.post('/contacts', JSON.parse(JSON.stringify(formData)));
+            const response = await api.post('/contacts', formData);
             console.log('API Response:', response);
 
-            setSuccess(true);
-            setFormData({
-                name: '',
-                company: '',
-                position: '',
-                last_contacted: '',
-                follow_up_date: '',
-                warm: false,
-                reminder: true,
-                notes: '',
-                contact_methods: [{ type: 'email', value: '', is_primary: true }]
-            });
+            if (response.data?.data?.id) {
+                setSuccess(true);
+                // Reset form
+                setFormData({
+                    name: '',
+                    company: '',
+                    position: '',
+                    last_contacted: '',
+                    follow_up_date: '',
+                    warm: false,
+                    reminder: true,
+                    notes: '',
+                    contact_methods: [{ type: 'email', value: '', is_primary: true }]
+                });
+
+                // Navigate back to contact list after successful creation
+                navigate('/contacts');
+            } else {
+                throw new Error('No contact ID returned from server');
+            }
         } catch (err: any) {
             console.error('API Error:', {
                 error: err,
@@ -172,7 +174,17 @@ const AddContact: React.FC = () => {
     };
 
     return (
-        <Paper elevation={3} sx={{ p: 4, maxWidth: 600, mx: 'auto' }}>
+        <Paper elevation={3} sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 'calc(100vh - 64px)',
+            textAlign: 'center',
+            py: 4,
+            width: '100vw',
+            maxWidth: '100%',
+        }}>
             <form onSubmit={handleSubmit}>
                 <Stack spacing={3}>
                     <Typography variant="h5" component="h2" gutterBottom>

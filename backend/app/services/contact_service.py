@@ -175,6 +175,7 @@ class ContactService:
                 primary_email = email_methods[0].value
 
             return {
+                "id": contact.id,
                 "name": contact.name,
                 "email": primary_email,
                 "company": contact.company,
