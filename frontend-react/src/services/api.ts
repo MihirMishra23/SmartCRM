@@ -3,6 +3,9 @@ import axios from 'axios';
 // Create axios instance with default config
 const api = axios.create({
     baseURL: 'http://localhost:5001/api',
+    headers: {
+        'Content-Type': 'application/json'
+    }
 });
 
 // Add request interceptor for logging
@@ -54,4 +57,28 @@ api.interceptors.response.use(
     }
 );
 
+// Email-related API methods
+const emailApi = {
+    // Search emails with optional filters
+    searchEmails: (params = {}) => {
+        return api.get('/emails/search', { params });
+    },
+
+    // Get emails for a specific contact
+    getContactEmails: (email: string) => {
+        return api.get(`/contacts/${email}/emails`);
+    },
+
+    // Sync emails for a specific contact
+    syncContactEmails: (email: string) => {
+        return api.post(`/contacts/${email}/sync-emails`, {});
+    },
+
+    // Sync all emails
+    syncAllEmails: () => {
+        return api.post('/emails/sync', {});
+    }
+};
+
+export { emailApi };
 export default api;
