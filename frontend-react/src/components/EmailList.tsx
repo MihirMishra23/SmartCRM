@@ -29,6 +29,7 @@ const EmailList: React.FC = () => {
     const [metadata, setMetadata] = useState<EmailMetadata>({ total: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
     const [syncing, setSyncing] = useState(false);
@@ -82,11 +83,24 @@ const EmailList: React.FC = () => {
         try {
             setSyncing(true);
             setError(null);
+            setSuccessMessage(null);
 
             debugLog('Sending sync request to API');
             const syncResponse = await emailApi.syncAllEmails();
 
+            const syncData = syncResponse.data.data || {};
+            const syncMeta = syncResponse.data.meta || {};
+
             debugLog('Sync response received:', syncResponse.data);
+
+            // Display sync results
+            const totalEmails = syncMeta.total_emails || 0;
+            const savedEmails = syncMeta.saved || 0;
+            const skippedEmails = syncMeta.skipped || 0;
+            const failedEmails = syncMeta.failed || 0;
+
+            // Show success message with sync details
+            setSuccessMessage(`Sync completed: ${savedEmails} new emails saved, ${skippedEmails} duplicates skipped, ${failedEmails} failed.`);
 
             // Refresh the email list after syncing
             debugLog('Refreshing email list after sync');
@@ -100,6 +114,7 @@ const EmailList: React.FC = () => {
                 error: err
             });
             setError(errorMessage);
+            setSuccessMessage(null);
         } finally {
             setSyncing(false);
             debugLog('Email sync operation completed');
@@ -174,6 +189,12 @@ const EmailList: React.FC = () => {
             {error && (
                 <Alert severity="error" sx={{ mb: 3, width: '100%' }}>
                     {error}
+                </Alert>
+            )}
+
+            {successMessage && (
+                <Alert severity="success" sx={{ mb: 3, width: '100%' }}>
+                    {successMessage}
                 </Alert>
             )}
 
