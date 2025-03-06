@@ -511,6 +511,10 @@ def sync_all_emails():
         )
 
         total_emails = 0
+        total_saved = 0
+        total_skipped = 0
+        total_failed = 0
+
         for idx, contact in enumerate(contacts):
             logger.debug(
                 f"Processing contact {idx + 1}/{len(contacts)}: {contact.name}"
@@ -529,15 +533,25 @@ def sync_all_emails():
 
             # Save emails
             logger.debug(f"Saving {len(sent_emails)} emails for contact {contact.name}")
-            email_service.save_emails_to_db(sent_emails, sender=contact)
+            result = email_service.save_emails_to_db(sent_emails, sender=contact)
             total_emails += len(sent_emails)
+            total_saved += result["saved"]
+            total_skipped += result["skipped"]
+            total_failed += result["failed"]
 
         logger.info(
-            f"Sync completed. Total emails: {total_emails}, Contacts: {len(contacts)}"
+            f"Sync completed. Total emails: {total_emails}, Saved: {total_saved}, Skipped: {total_skipped}, Failed: {total_failed}, Contacts: {len(contacts)}"
         )
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={"email_count": total_emails, "contact_count": len(contacts)},
+            meta={
+                "total_emails": total_emails,
+                "email_count": total_emails,  # Keep for backward compatibility
+                "saved": total_saved,
+                "skipped": total_skipped,
+                "failed": total_failed,
+                "contact_count": len(contacts),
+            },
         )
     except RuntimeError as e:
         logger.error(f"Failed to sync emails: {str(e)}", exc_info=True)

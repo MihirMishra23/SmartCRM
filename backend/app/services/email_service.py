@@ -177,6 +177,7 @@ class EmailService:
                         "from": from_header,
                         "date": date_header,
                         "content": content,
+                        "message_id": message["id"],
                     }
                 )
 
@@ -189,11 +190,14 @@ class EmailService:
             raise RuntimeError(f"Error fetching emails: {str(e)}")
 
     def save_emails_to_db(self, emails: List[dict], sender: Contact):
-        """Save fetched emails to database.
+        """Save fetched emails to the database.
 
         Args:
-            emails: List of email data dictionaries
-            sender: Contact object who sent the emails
+            emails: List of email dictionaries from fetch_emails
+            sender: Contact object representing the sender
+
+        Returns:
+            Dict with counts of saved, skipped, and failed emails
 
         Raises:
             RuntimeError: If database operation fails
@@ -201,6 +205,7 @@ class EmailService:
         logger.info(f"Saving {len(emails)} emails to database for sender {sender.id}")
 
         successful_saves = 0
+        skipped_saves = 0  # New counter for skipped emails
         failed_saves = 0
 
         for idx, email_data in enumerate(emails):
@@ -210,7 +215,22 @@ class EmailService:
 
             try:
                 logger.debug(f"Processing email {idx + 1}/{len(emails)}")
+
+                # Check if email already exists by message ID
+                message_id = email_data.get("message_id")
+                if message_id:
+                    existing_email = Email.query.filter_by(
+                        message_id=message_id
+                    ).first()
+                    if existing_email:
+                        logger.info(
+                            f"Email with message ID {message_id} already exists, skipping"
+                        )
+                        skipped_saves += 1
+                        continue
+
                 email = Email()
+                email.message_id = message_id  # Store the Gmail message ID
                 email.date = datetime.strptime(
                     email_data["date"], "%a, %d %b %Y %H:%M:%S %z"
                 ).date()
@@ -236,12 +256,17 @@ class EmailService:
             logger.debug("Committing changes to database")
             db.session.commit()
             logger.info(
-                f"Successfully saved {successful_saves} emails, {failed_saves} failed"
+                f"Successfully saved {successful_saves} emails, skipped {skipped_saves} duplicates, failed to save {failed_saves}"
             )
+            return {
+                "saved": successful_saves,
+                "skipped": skipped_saves,
+                "failed": failed_saves,
+            }
         except Exception as e:
-            logger.error(f"Database commit failed: {str(e)}", exc_info=True)
+            logger.error(f"Error committing changes to database: {str(e)}")
             db.session.rollback()
-            raise RuntimeError(f"Error saving emails to database: {str(e)}")
+            raise RuntimeError(f"Failed to save emails: {str(e)}")
 
     @staticmethod
     def get_emails_for_sender(sender_id: int) -> List[Email]:
