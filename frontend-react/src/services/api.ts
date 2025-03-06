@@ -57,26 +57,99 @@ api.interceptors.response.use(
     }
 );
 
+// Debug logger function for API calls
+const apiDebugLog = (message: string, data?: any) => {
+    console.log(`[EmailAPI] ${message}`, data || '');
+};
+
 // Email-related API methods
 const emailApi = {
     // Search emails with optional filters
     searchEmails: (params = {}) => {
-        return api.get('/emails/search', { params });
+        apiDebugLog('Searching emails with params:', params);
+        return api.get('/emails/search', { params })
+            .then(response => {
+                apiDebugLog('Search emails response:', {
+                    status: response.status,
+                    emailCount: response.data.data?.length || 0,
+                    metadata: response.data.meta
+                });
+                return response;
+            })
+            .catch(error => {
+                apiDebugLog('Search emails error:', {
+                    status: error.response?.status,
+                    message: error.response?.data?.message,
+                    error
+                });
+                throw error;
+            });
     },
 
     // Get emails for a specific contact
     getContactEmails: (email: string) => {
-        return api.get(`/contacts/${email}/emails`);
+        apiDebugLog('Getting emails for contact:', email);
+        return api.get(`/contacts/${email}/emails`)
+            .then(response => {
+                apiDebugLog('Get contact emails response:', {
+                    status: response.status,
+                    emailCount: response.data.data?.length || 0,
+                    metadata: response.data.meta
+                });
+                return response;
+            })
+            .catch(error => {
+                apiDebugLog('Get contact emails error:', {
+                    status: error.response?.status,
+                    message: error.response?.data?.message,
+                    error
+                });
+                throw error;
+            });
     },
 
     // Sync emails for a specific contact
     syncContactEmails: (email: string) => {
-        return api.post(`/contacts/${email}/sync-emails`, {});
+        apiDebugLog('Syncing emails for contact:', email);
+        return api.post(`/contacts/${email}/sync-emails`, {})
+            .then(response => {
+                apiDebugLog('Sync contact emails response:', {
+                    status: response.status,
+                    data: response.data
+                });
+                return response;
+            })
+            .catch(error => {
+                apiDebugLog('Sync contact emails error:', {
+                    status: error.response?.status,
+                    message: error.response?.data?.message,
+                    error
+                });
+                throw error;
+            });
     },
 
     // Sync all emails
     syncAllEmails: () => {
-        return api.post('/emails/sync', {});
+        apiDebugLog('Syncing all emails');
+        return api.post('/emails/sync', {})
+            .then(response => {
+                apiDebugLog('Sync all emails response:', {
+                    status: response.status,
+                    data: response.data
+                });
+                return response;
+            })
+            .catch(error => {
+                apiDebugLog('Sync all emails error:', {
+                    status: error.response?.status,
+                    message: error.response?.data?.message,
+                    headers: error.response?.headers,
+                    config: error.config,
+                    error
+                });
+                throw error;
+            });
     }
 };
 

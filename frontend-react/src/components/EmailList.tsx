@@ -19,6 +19,11 @@ import { Search as SearchIcon, Refresh as RefreshIcon } from '@mui/icons-materia
 import { emailApi } from '../services/api';
 import { Email, EmailMetadata } from '../types/email';
 
+// Debug logger function
+const debugLog = (message: string, data?: any) => {
+    console.log(`[EmailDebug] ${message}`, data || '');
+};
+
 const EmailList: React.FC = () => {
     const [emails, setEmails] = useState<Email[]>([]);
     const [metadata, setMetadata] = useState<EmailMetadata>({ total: 0 });
@@ -29,6 +34,7 @@ const EmailList: React.FC = () => {
     const [syncing, setSyncing] = useState(false);
 
     const fetchEmails = async () => {
+        debugLog('Fetching emails with search term:', searchTerm);
         try {
             setLoading(true);
             setError(null);
@@ -40,36 +46,82 @@ const EmailList: React.FC = () => {
                 q: searchTerm
             });
 
+            debugLog('Received email response:', {
+                count: response.data.data.length,
+                metadata: response.data.meta
+            });
+
+            // Log each email's key information
+            response.data.data.forEach((email: Email, index: number) => {
+                debugLog(`Email ${index + 1}/${response.data.data.length}:`, {
+                    id: email.id,
+                    subject: email.subject,
+                    sender: email.sender_email,
+                    date: email.date,
+                    read: email.read,
+                    has_attachments: email.has_attachments
+                });
+            });
+
             setEmails(response.data.data);
             setMetadata(response.data.meta);
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to fetch emails');
+            const errorMessage = err.response?.data?.message || 'Failed to fetch emails';
+            debugLog('Error fetching emails:', {
+                message: errorMessage,
+                error: err
+            });
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }
     };
 
     const handleSyncEmails = async () => {
+        debugLog('Starting email sync operation');
         try {
             setSyncing(true);
             setError(null);
 
-            await emailApi.syncAllEmails();
+            debugLog('Sending sync request to API');
+            const syncResponse = await emailApi.syncAllEmails();
+
+            debugLog('Sync response received:', syncResponse.data);
 
             // Refresh the email list after syncing
+            debugLog('Refreshing email list after sync');
             await fetchEmails();
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to sync emails');
+            const errorMessage = err.response?.data?.message || 'Failed to sync emails';
+            debugLog('Error syncing emails:', {
+                message: errorMessage,
+                status: err.response?.status,
+                data: err.response?.data,
+                error: err
+            });
+            setError(errorMessage);
         } finally {
             setSyncing(false);
+            debugLog('Email sync operation completed');
         }
     };
 
     useEffect(() => {
+        debugLog('EmailList component mounted, fetching initial emails');
         fetchEmails();
+
+        return () => {
+            debugLog('EmailList component unmounting');
+        };
     }, []);
 
     const handleEmailSelect = (email: Email) => {
+        debugLog('Email selected:', {
+            id: email.id,
+            subject: email.subject,
+            sender: email.sender_email,
+            date: email.date
+        });
         setSelectedEmail(email);
     };
 
@@ -79,12 +131,19 @@ const EmailList: React.FC = () => {
     };
 
     if (loading) {
+        debugLog('Rendering loading state');
         return (
             <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
                 <CircularProgress />
             </Box>
         );
     }
+
+    debugLog('Rendering EmailList component with', {
+        emailCount: emails.length,
+        hasSelectedEmail: !!selectedEmail,
+        metadata
+    });
 
     return (
         <Container sx={{
@@ -99,7 +158,7 @@ const EmailList: React.FC = () => {
         }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3} sx={{ width: '100%' }}>
                 <Typography variant="h5" component="h1">
-                    Emails
+                    Emails {metadata.total > 0 ? `(${metadata.total})` : ''}
                 </Typography>
                 <Button
                     variant="contained"
@@ -171,6 +230,9 @@ const EmailList: React.FC = () => {
                                                     fontWeight={!email.read ? 'bold' : 'normal'}
                                                 >
                                                     {email.subject || '(No Subject)'}
+                                                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                                        (ID: {email.id})
+                                                    </Typography>
                                                 </Typography>
                                             }
                                             secondary={
@@ -198,6 +260,9 @@ const EmailList: React.FC = () => {
                         <>
                             <Typography variant="h6" gutterBottom>
                                 {selectedEmail.subject || '(No Subject)'}
+                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                    (ID: {selectedEmail.id})
+                                </Typography>
                             </Typography>
 
                             <Box sx={{ mb: 2 }}>
@@ -210,6 +275,17 @@ const EmailList: React.FC = () => {
                                 <Typography variant="body2">
                                     <strong>Date:</strong> {formatDate(selectedEmail.date)}
                                 </Typography>
+                                <Typography variant="body2">
+                                    <strong>Read:</strong> {selectedEmail.read ? 'Yes' : 'No'}
+                                </Typography>
+                                <Typography variant="body2">
+                                    <strong>Has Attachments:</strong> {selectedEmail.has_attachments ? 'Yes' : 'No'}
+                                </Typography>
+                                {selectedEmail.thread_id && (
+                                    <Typography variant="body2">
+                                        <strong>Thread ID:</strong> {selectedEmail.thread_id}
+                                    </Typography>
+                                )}
                             </Box>
 
                             <Divider sx={{ my: 2 }} />
