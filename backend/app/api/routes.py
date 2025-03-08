@@ -525,16 +525,16 @@ def sync_all_emails():
                 continue
 
             # Fetch emails sent by this contact
-            query = " OR ".join(f"from:{email}" for email in email_addresses)
+            query = " OR ".join(f"{email}" for email in email_addresses)
             logger.debug(f"Gmail query for contact {contact.name}: {query}")
 
-            sent_emails = email_service.fetch_emails(query)
-            logger.info(f"Found {len(sent_emails)} emails for contact {contact.name}")
+            emails = email_service.fetch_emails(query)
+            logger.info(f"Found {len(emails)} emails for contact {contact.name}")
 
             # Save emails
-            logger.debug(f"Saving {len(sent_emails)} emails for contact {contact.name}")
-            result = email_service.save_emails_to_db(sent_emails, sender=contact)
-            total_emails += len(sent_emails)
+            logger.debug(f"Saving {len(emails)} emails for contact {contact.name}")
+            result = email_service.save_emails_to_db(emails, sender=contact)
+            total_emails += len(emails)
             total_saved += result["saved"]
             total_skipped += result["skipped"]
             total_failed += result["failed"]
