@@ -34,6 +34,43 @@ const EmailList: React.FC = () => {
     const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
     const [syncing, setSyncing] = useState(false);
 
+    // Helper function to transform email data
+    const transformEmailData = (emailData: any[]): Email[] => {
+        return emailData.map((email: any) => {
+            // Extract sender information
+            const sender = email.sender || {};
+
+            // Extract all recipients information
+            const receivers = email.receivers || [];
+            const firstReceiver = receivers.length > 0 ? receivers[0] : {};
+
+            return {
+                id: email.id,
+                subject: email.subject || '',
+                content: email.content || '',
+                date: email.date || '',
+                // Sender information
+                sender_id: sender.id || email.sender_id || 0,
+                sender_name: sender.name || email.sender_name || '',
+                sender_email: sender.email || email.sender_email || '',
+                // Recipient information (for backward compatibility)
+                recipient_id: firstReceiver.id || email.recipient_id || 0,
+                recipient_name: firstReceiver.name || email.recipient_name || '',
+                recipient_email: firstReceiver.email || email.recipient_email || '',
+                // All recipients
+                recipients: receivers.map((receiver: any) => ({
+                    id: receiver.id || 0,
+                    name: receiver.name || '',
+                    email: receiver.email || ''
+                })),
+                // Other fields
+                thread_id: email.thread_id || '',
+                read: email.read !== undefined ? email.read : true,
+                has_attachments: email.has_attachments !== undefined ? email.has_attachments : false
+            };
+        });
+    };
+
     const fetchEmails = async () => {
         debugLog('Fetching emails with search term:', searchTerm);
         try {
@@ -52,9 +89,12 @@ const EmailList: React.FC = () => {
                 metadata: response.data.meta
             });
 
+            // Transform the API response to match the frontend Email interface
+            const transformedEmails = transformEmailData(response.data.data);
+
             // Log each email's key information
-            response.data.data.forEach((email: Email, index: number) => {
-                debugLog(`Email ${index + 1}/${response.data.data.length}:`, {
+            transformedEmails.forEach((email: Email, index: number) => {
+                debugLog(`Email ${index + 1}/${transformedEmails.length}:`, {
                     id: email.id,
                     subject: email.subject,
                     sender: email.sender_email,
@@ -64,7 +104,7 @@ const EmailList: React.FC = () => {
                 });
             });
 
-            setEmails(response.data.data);
+            setEmails(transformedEmails);
             setMetadata(response.data.meta);
         } catch (err: any) {
             const errorMessage = err.response?.data?.message || 'Failed to fetch emails';
@@ -291,7 +331,11 @@ const EmailList: React.FC = () => {
                                     <strong>From:</strong> {selectedEmail.sender_name} &lt;{selectedEmail.sender_email}&gt;
                                 </Typography>
                                 <Typography variant="body2">
-                                    <strong>To:</strong> {selectedEmail.recipient_name || ''} &lt;{selectedEmail.recipient_email}&gt;
+                                    <strong>To:</strong> {
+                                        selectedEmail.recipients && selectedEmail.recipients.length > 0
+                                            ? selectedEmail.recipients.map(r => `${r.name || r.email} ${r.email ? `<${r.email}>` : ''}`).join(', ')
+                                            : `${selectedEmail.recipient_name || ''} ${selectedEmail.recipient_email ? `<${selectedEmail.recipient_email}>` : ''}`
+                                    }
                                 </Typography>
                                 <Typography variant="body2">
                                     <strong>Date:</strong> {formatDate(selectedEmail.date)}
