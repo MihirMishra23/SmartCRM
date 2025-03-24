@@ -1,0 +1,3 @@
+"""
+SmartCRM backend package.
+"""

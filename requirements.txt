@@ -18,6 +18,7 @@ click
 docker-pycreds
 et-xmlfile
 exceptiongroup
+Flask
 frozenlist
 gitdb
 GitPython
@@ -80,3 +81,21 @@ urllib3
 wandb
 Werkzeug
 yarl
+flask-sqlalchemy
+flask-migrate
+flask-cors
+psycopg2-binary
+alembic
+
+# Test dependencies
+pytest
+pytest-cov
+pytest-flask
+pytest-sqlalchemy
+
+# Documentation
+flasgger
+mkdocs
+mkdocs-material
+mkdocstrings
+mkdocstrings-python
