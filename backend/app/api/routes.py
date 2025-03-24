@@ -92,6 +92,10 @@ class MetaData(TypedDict, total=False):
     received_count: Optional[int]
     sent_emails_count: Optional[int]
     total_emails: Optional[int]
+    saved: Optional[int]
+    skipped: Optional[int]
+    filtered: Optional[int]
+    failed: Optional[int]
 
     # IDs
     contact_id: Optional[int]
@@ -443,11 +447,19 @@ def sync_contact_emails(email: str):
         sent_emails = email_service.fetch_emails(query)
 
         # Save sent emails
-        email_service.save_emails_to_db(sent_emails, sender=contact)
+        result = email_service.save_emails_to_db(sent_emails)
+
+        meta_data: MetaData = {
+            "sent_emails_count": len(sent_emails),
+            "saved": result["saved"],
+            "skipped": result["skipped"],
+            "filtered": result.get("filtered", 0),
+            "failed": result["failed"],
+        }
 
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={"sent_emails_count": len(sent_emails)},
+            meta=meta_data,
         )
     except RuntimeError as e:
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
@@ -523,6 +535,13 @@ def sync_all_emails():
             if not email_addresses:
                 logger.warning(f"No email addresses found for contact {contact.name}")
                 continue
+            # Check if any of the contact's email addresses match user emails
+            # If so, skip the contact (bc this'll get irrelevant emails)
+            if set(email_addresses) & set(email_service.user_emails):
+                logger.debug(
+                    f"Skipping contact {contact.name} as their email matches a user email"
+                )
+                continue
 
             # Fetch emails sent by this contact
             query = " OR ".join(f"{email}" for email in email_addresses)
@@ -533,7 +552,7 @@ def sync_all_emails():
 
             # Save emails
             logger.debug(f"Saving {len(emails)} emails for contact {contact.name}")
-            result = email_service.save_emails_to_db(emails, sender=contact)
+            result = email_service.save_emails_to_db(emails)
             total_emails += len(emails)
             total_saved += result["saved"]
             total_skipped += result["skipped"]
@@ -542,16 +561,19 @@ def sync_all_emails():
         logger.info(
             f"Sync completed. Total emails: {total_emails}, Saved: {total_saved}, Skipped: {total_skipped}, Failed: {total_failed}, Contacts: {len(contacts)}"
         )
+
+        meta_data: MetaData = {
+            "total_emails": total_emails,
+            "email_count": total_emails,  # Keep for backward compatibility
+            "saved": total_saved,
+            "skipped": total_skipped,
+            "failed": total_failed,
+            "contact_count": len(contacts),
+        }
+
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={
-                "total_emails": total_emails,
-                "email_count": total_emails,  # Keep for backward compatibility
-                "saved": total_saved,
-                "skipped": total_skipped,
-                "failed": total_failed,
-                "contact_count": len(contacts),
-            },
+            meta=meta_data,
         )
     except RuntimeError as e:
         logger.error(f"Failed to sync emails: {str(e)}", exc_info=True)
