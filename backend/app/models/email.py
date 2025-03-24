@@ -11,6 +11,7 @@ class Email(db.Model):
     date = db.Column(db.Date, nullable=False)
     summary = db.Column(db.Text)
     content = db.Column(db.Text, nullable=False)
+    message_id = db.Column(db.String(255), unique=True, nullable=True, index=True)
     sender_id = db.Column(
         db.Integer, db.ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
     )

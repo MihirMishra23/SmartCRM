@@ -92,6 +92,10 @@ class MetaData(TypedDict, total=False):
     received_count: Optional[int]
     sent_emails_count: Optional[int]
     total_emails: Optional[int]
+    saved: Optional[int]
+    skipped: Optional[int]
+    filtered: Optional[int]
+    failed: Optional[int]
 
     # IDs
     contact_id: Optional[int]
@@ -443,11 +447,19 @@ def sync_contact_emails(email: str):
         sent_emails = email_service.fetch_emails(query)
 
         # Save sent emails
-        email_service.save_emails_to_db(sent_emails, sender=contact)
+        result = email_service.save_emails_to_db(sent_emails)
+
+        meta_data: MetaData = {
+            "sent_emails_count": len(sent_emails),
+            "saved": result["saved"],
+            "skipped": result["skipped"],
+            "filtered": result.get("filtered", 0),
+            "failed": result["failed"],
+        }
 
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={"sent_emails_count": len(sent_emails)},
+            meta=meta_data,
         )
     except RuntimeError as e:
         raise BadRequestError(f"Failed to sync emails: {str(e)}")
@@ -511,6 +523,10 @@ def sync_all_emails():
         )
 
         total_emails = 0
+        total_saved = 0
+        total_skipped = 0
+        total_failed = 0
+
         for idx, contact in enumerate(contacts):
             logger.debug(
                 f"Processing contact {idx + 1}/{len(contacts)}: {contact.name}"
@@ -519,25 +535,45 @@ def sync_all_emails():
             if not email_addresses:
                 logger.warning(f"No email addresses found for contact {contact.name}")
                 continue
+            # Check if any of the contact's email addresses match user emails
+            # If so, skip the contact (bc this'll get irrelevant emails)
+            if set(email_addresses) & set(email_service.user_emails):
+                logger.debug(
+                    f"Skipping contact {contact.name} as their email matches a user email"
+                )
+                continue
 
             # Fetch emails sent by this contact
-            query = " OR ".join(f"from:{email}" for email in email_addresses)
+            query = " OR ".join(f"{email}" for email in email_addresses)
             logger.debug(f"Gmail query for contact {contact.name}: {query}")
 
-            sent_emails = email_service.fetch_emails(query)
-            logger.info(f"Found {len(sent_emails)} emails for contact {contact.name}")
+            emails = email_service.fetch_emails(query)
+            logger.info(f"Found {len(emails)} emails for contact {contact.name}")
 
             # Save emails
-            logger.debug(f"Saving {len(sent_emails)} emails for contact {contact.name}")
-            email_service.save_emails_to_db(sent_emails, sender=contact)
-            total_emails += len(sent_emails)
+            logger.debug(f"Saving {len(emails)} emails for contact {contact.name}")
+            result = email_service.save_emails_to_db(emails)
+            total_emails += len(emails)
+            total_saved += result["saved"]
+            total_skipped += result["skipped"]
+            total_failed += result["failed"]
 
         logger.info(
-            f"Sync completed. Total emails: {total_emails}, Contacts: {len(contacts)}"
+            f"Sync completed. Total emails: {total_emails}, Saved: {total_saved}, Skipped: {total_skipped}, Failed: {total_failed}, Contacts: {len(contacts)}"
         )
+
+        meta_data: MetaData = {
+            "total_emails": total_emails,
+            "email_count": total_emails,  # Keep for backward compatibility
+            "saved": total_saved,
+            "skipped": total_skipped,
+            "failed": total_failed,
+            "contact_count": len(contacts),
+        }
+
         return APIResponse.success(
             message="Emails synced successfully",
-            meta={"email_count": total_emails, "contact_count": len(contacts)},
+            meta=meta_data,
         )
     except RuntimeError as e:
         logger.error(f"Failed to sync emails: {str(e)}", exc_info=True)

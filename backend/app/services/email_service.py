@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from ..models.email import Email
 from ..models.contact import Contact
+from ..models.contact_method import ContactMethod
 from ..models.base import db
 import base64
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,6 +16,7 @@ from sqlalchemy import or_, and_, desc, func
 import logging
 import time
 import json
+from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,9 @@ class EmailService:
         self.credentials_path = credentials_path
         self.creds = None
         self.service = None
+        self.user_emails = Config.USER_EMAILS
         logger.info(
-            f"EmailService initialized with token_path={token_path}, credentials_path={credentials_path}"
+            f"EmailService initialized with token_path={token_path}, credentials_path={credentials_path}, user_emails={self.user_emails}"
         )
 
     def authenticate(self):
@@ -145,6 +148,14 @@ class EmailService:
                     (header["value"] for header in headers if header["name"] == "From"),
                     "Unknown",
                 )
+                to_header = next(
+                    (header["value"] for header in headers if header["name"] == "To"),
+                    "",
+                )
+                cc_header = next(
+                    (header["value"] for header in headers if header["name"] == "Cc"),
+                    "",
+                )
                 date_header = next(
                     (header["value"] for header in headers if header["name"] == "Date"),
                     None,
@@ -153,6 +164,11 @@ class EmailService:
                 logger.debug(
                     f"Extracted headers - Subject: {subject}, From: {from_header}"
                 )
+
+                # Extract email addresses
+                from_email = self._extract_email_address(from_header)
+                to_emails = self._extract_multiple_email_addresses(to_header)
+                cc_emails = self._extract_multiple_email_addresses(cc_header)
 
                 # Extract email content
                 payload = msg.get("payload", {})
@@ -175,8 +191,14 @@ class EmailService:
                     {
                         "subject": subject,
                         "from": from_header,
+                        "from_email": from_email,
+                        "to": to_header,
+                        "to_emails": to_emails,
+                        "cc": cc_header,
+                        "cc_emails": cc_emails,
                         "date": date_header,
                         "content": content,
+                        "message_id": message["id"],
                     }
                 )
 
@@ -188,19 +210,68 @@ class EmailService:
             logger.error(f"Error fetching emails: {str(e)}", exc_info=True)
             raise RuntimeError(f"Error fetching emails: {str(e)}")
 
-    def save_emails_to_db(self, emails: List[dict], sender: Contact):
-        """Save fetched emails to database.
+    def _extract_email_address(self, header_value: str) -> str:
+        """Extract email address from a header value.
 
         Args:
-            emails: List of email data dictionaries
-            sender: Contact object who sent the emails
+            header_value: Header value (e.g., "John Doe <john@example.com>")
+
+        Returns:
+            Email address (e.g., "john@example.com")
+        """
+        if "<" in header_value and ">" in header_value:
+            return header_value.split("<")[1].split(">")[0].strip().lower()
+        return header_value.strip().lower()
+
+    def _extract_multiple_email_addresses(self, header_value: str) -> List[str]:
+        """Extract multiple email addresses from a header value.
+
+        Args:
+            header_value: Header value (e.g., "John Doe <john@example.com>, Jane Doe <jane@example.com>")
+
+        Returns:
+            List of email addresses (e.g., ["john@example.com", "jane@example.com"])
+        """
+        if not header_value:
+            return []
+
+        # Split by commas, but handle commas inside quotes
+        parts = []
+        current_part = ""
+        in_quotes = False
+
+        for char in header_value:
+            if char == '"':
+                in_quotes = not in_quotes
+            elif char == "," and not in_quotes:
+                parts.append(current_part.strip())
+                current_part = ""
+                continue
+            current_part += char
+
+        if current_part:
+            parts.append(current_part.strip())
+
+        # Extract email from each part
+        emails = [self._extract_email_address(part) for part in parts]
+        return [email for email in emails if email]  # Filter out empty strings
+
+    def save_emails_to_db(self, emails: List[dict]):
+        """Save fetched emails to the database.
+
+        Args:
+            emails: List of email dictionaries from fetch_emails
+
+        Returns:
+            Dict with counts of saved, skipped, and failed emails
 
         Raises:
             RuntimeError: If database operation fails
         """
-        logger.info(f"Saving {len(emails)} emails to database for sender {sender.id}")
+        logger.info(f"Saving {len(emails)} emails to database")
 
         successful_saves = 0
+        skipped_saves = 0
         failed_saves = 0
 
         for idx, email_data in enumerate(emails):
@@ -210,19 +281,148 @@ class EmailService:
 
             try:
                 logger.debug(f"Processing email {idx + 1}/{len(emails)}")
+
+                # Check if email already exists by message ID
+                message_id = email_data.get("message_id")
+                if message_id:
+                    existing_email = Email.query.filter_by(
+                        message_id=message_id
+                    ).first()
+                    if existing_email:
+                        logger.info(
+                            f"Email with message ID {message_id} already exists, skipping"
+                        )
+                        skipped_saves += 1
+                        continue
+
+                # Extract sender and recipient information
+                from_email = (
+                    email_data.get("from_email", "").lower()
+                    if email_data.get("from_email")
+                    else ""
+                )
+                to_emails = (
+                    [email.lower() for email in email_data.get("to_emails", [])]
+                    if email_data.get("to_emails")
+                    else []
+                )
+                cc_emails = (
+                    [email.lower() for email in email_data.get("cc_emails", [])]
+                    if email_data.get("cc_emails")
+                    else []
+                )
+                all_recipient_emails = to_emails + cc_emails
+
+                # Check if this email involves at least one contact
+                contact_involved = False
+                sender_contact = None
+                recipient_contacts = []
+
+                # Check if sender is a contact (not a user email)
+                if from_email and from_email not in [
+                    email.lower() for email in self.user_emails if email
+                ]:
+                    # Sender is not a user email, look up the contact
+                    sender_contact = (
+                        db.session.query(Contact)
+                        .join(ContactMethod, Contact.id == ContactMethod.contact_id)
+                        .filter(
+                            ContactMethod.method_type == "email",
+                            func.lower(ContactMethod.value) == from_email,
+                        )
+                        .first()
+                    )
+
+                    if sender_contact:
+                        contact_involved = True
+
+                # Check if any recipient is a contact
+                for recipient_email in all_recipient_emails:
+                    recipient_contact = (
+                        db.session.query(Contact)
+                        .join(ContactMethod, Contact.id == ContactMethod.contact_id)
+                        .filter(
+                            ContactMethod.method_type == "email",
+                            func.lower(ContactMethod.value) == recipient_email,
+                        )
+                        .first()
+                    )
+
+                    if recipient_contact:
+                        contact_involved = True
+                        recipient_contacts.append(recipient_contact)
+
+                # Skip this email if no contacts are involved
+                if not contact_involved:
+                    logger.info(
+                        f"Email {idx} does not involve any contacts, filtering out"
+                    )
+                    filtered_out += 1
+                    continue
+
+                # Create new email record
                 email = Email()
+                email.message_id = message_id
                 email.date = datetime.strptime(
                     email_data["date"], "%a, %d %b %Y %H:%M:%S %z"
                 ).date()
                 email.content = email_data["content"]
-                email.summary = ""  # You might want to generate this using GPT
+                email.summary = ""
                 email.subject = email_data.get("subject", "No Subject")
 
-                # Set sender
-                email.sender = sender
+                # Set the actual sender
+                if sender_contact:
+                    email.sender = sender_contact
+                    # Add sender to contacts list
+                    email.contacts.append(sender_contact)
+                else:
+                    # Sender is a user email, find or create a special contact for the user
+                    user_email = from_email
+                    # Check if we already have a special user contact for this email
+                    user_contact = (
+                        db.session.query(Contact)
+                        .join(ContactMethod, Contact.id == ContactMethod.contact_id)
+                        .filter(
+                            ContactMethod.method_type == "email",
+                            func.lower(ContactMethod.value) == user_email,
+                        )
+                        .first()
+                    )
 
-                # Add to contacts relationship (which includes both sender and receivers)
-                email.contacts.append(sender)
+                    # If we don't have a contact for this user email, create a special one
+                    if not user_contact:
+                        # Create a basic contact for the user email
+                        from_name = (
+                            email_data.get("from", "").split("<")[0].strip()
+                            if "<" in email_data.get("from", "")
+                            else "User"
+                        )
+                        user_contact = Contact()
+                        user_contact.name = from_name if from_name else "User"
+                        user_contact.notes = "Automatically created for user email"
+                        db.session.add(user_contact)
+                        db.session.flush()  # Get an ID for the contact
+
+                        # Add the email as a contact method
+                        user_contact_method = ContactMethod()
+                        user_contact_method.contact_id = user_contact.id
+                        user_contact_method.method_type = "email"
+                        user_contact_method.value = user_email
+                        user_contact_method.is_primary = True
+                        db.session.add(user_contact_method)
+                        logger.info(
+                            f"Created special user contact for email {user_email}"
+                        )
+
+                    # Set the user contact as the sender
+                    email.sender = user_contact
+                    # Add sender to contacts list
+                    email.contacts.append(user_contact)
+
+                # Add all recipient contacts
+                for contact in recipient_contacts:
+                    if contact not in email.contacts:
+                        email.contacts.append(contact)
 
                 db.session.add(email)
                 successful_saves += 1
@@ -236,12 +436,17 @@ class EmailService:
             logger.debug("Committing changes to database")
             db.session.commit()
             logger.info(
-                f"Successfully saved {successful_saves} emails, {failed_saves} failed"
+                f"Successfully saved {successful_saves} emails, skipped {skipped_saves} duplicates, failed to save {failed_saves}"
             )
+            return {
+                "saved": successful_saves,
+                "skipped": skipped_saves,
+                "failed": failed_saves,
+            }
         except Exception as e:
-            logger.error(f"Database commit failed: {str(e)}", exc_info=True)
+            logger.error(f"Error committing changes to database: {str(e)}")
             db.session.rollback()
-            raise RuntimeError(f"Error saving emails to database: {str(e)}")
+            raise RuntimeError(f"Failed to save emails: {str(e)}")
 
     @staticmethod
     def get_emails_for_sender(sender_id: int) -> List[Email]:
@@ -307,7 +512,7 @@ class EmailService:
         logger.info(f"Fetching all emails for contact_id={contact_id}")
         try:
             emails = (
-                Email.query.join(Email.receivers)
+                Email.query.join(Email.contacts)
                 .filter(or_(Email.sender_id == contact_id, Contact.id == contact_id))
                 .order_by(Email.date.desc())
                 .distinct()

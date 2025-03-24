@@ -3,6 +3,7 @@ import { AppBar, Toolbar, Typography, Container, Button, Box } from '@mui/materi
 import AddContact from './components/AddContact';
 import ContactList from './components/ContactList';
 import Homepage from './components/Homepage';
+import EmailList from './components/EmailList';
 
 function App() {
   return (
@@ -20,6 +21,9 @@ function App() {
           </Button>
           <Button color="inherit" component={Link} to="/add-contact">
             Add Contact
+          </Button>
+          <Button color="inherit" component={Link} to="/emails">
+            Emails
           </Button>
         </Toolbar>
       </AppBar>
@@ -42,6 +46,7 @@ function App() {
           <Route path="/" element={<Homepage />} />
           <Route path="/contacts" element={<ContactList />} />
           <Route path="/add-contact" element={<AddContact />} />
+          <Route path="/emails" element={<EmailList />} />
         </Routes>
       </Container>
     </Router>
